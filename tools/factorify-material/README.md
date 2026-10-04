@@ -1,6 +1,8 @@
 # Materiálový přehled (Factorify)
 
 Interaktivní stránka pro vyhledání vstupního materiálu ve Factorify podle ID nebo názvu.
+Hledá jen v typech zboží s prefixem PM (čte se z účetní jednotky Centrála) a PI
+(z jednotky Prusa Industrial); každá divize jde vypnout přepínačem.
 Pro každý materiál ukazuje dodavatele, MOQ, ceny (platný ceník, poslední nákup, VNC)
 a spotřebu za den, měsíc a rok. Detail řádku obsahuje graf spotřeby po měsících
 a po dnech, všechny nákupní ceníky, poslední nákupní objednávky a zásobu po skladech.
@@ -17,6 +19,7 @@ Mimo claude.ai stránka data nenačte.
   Které kategorie se sčítají, se volí přímo na stránce.
 - Den = průměr za posledních 30 (nebo 365) dní, měsíc = posledních 30 dní,
   minulý kalendářní měsíc nebo průměr za 12 měsíců, rok = posledních 365 dní.
-- Tabulka skladových pohybů je velká, proto stránka nejdřív zjistí rozsah ID pohybů
+- Spotřeba, sklad a ceny se počítají v účetní jednotce dané divize.
+- Tabulka skladových pohybů je velká, proto stránka nejdřív zjistí (podle data vytvoření pohybů) rozsah ID
   pro posledních 30 dní a pro rok a spotřebu čte po materiálech v několika menších
   dotazech. Když dotaz narazí na časový limit, rozdělí se automaticky na menší části.

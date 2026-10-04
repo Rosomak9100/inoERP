@@ -45,8 +45,6 @@ button,input,select{font:inherit;color:inherit}
 .top{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px 24px}
 .eyebrow{font:600 11px/1 var(--font-cond);letter-spacing:.14em;text-transform:uppercase;color:var(--accent)}
 h1{font:600 28px/1.1 var(--font-cond);letter-spacing:-.01em;margin:6px 0 0;text-wrap:balance}
-.au{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink-2)}
-.au select{min-width:0;max-width:260px}
 select{background:var(--surface);border:1px solid var(--line);border-radius:7px;padding:6px 8px}
 
 /* Hledání */
@@ -81,6 +79,9 @@ select{background:var(--surface);border:1px solid var(--line);border-radius:7px;
 .chip{border:1px solid var(--line);border-radius:999px;padding:4px 10px 4px 8px;display:inline-flex;gap:7px;align-items:center;background:var(--surface);cursor:pointer;font-size:13px}
 .chip .sw{width:10px;height:10px;border-radius:3px;background:var(--c);flex:none}
 .chip[aria-pressed="false"]{color:var(--muted)}
+.chip[disabled]{opacity:.45;cursor:not-allowed}
+.div-chip{padding-left:10px}
+.div-chip[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft)}
 .chip[aria-pressed="false"] .sw{background:transparent;box-shadow:inset 0 0 0 1.5px var(--c)}
 .filter-in{border:1px solid var(--line);background:var(--surface);border-radius:7px;padding:6px 10px;min-width:0;width:200px;max-width:100%}
 .colmenu{position:relative}
@@ -201,9 +202,6 @@ table.mini tr.expired td{color:var(--muted)}
       <div class="eyebrow">Factorify · vstupní materiál</div>
       <h1>Materiálový přehled</h1>
     </div>
-    <label class="au" for="au">Účetní jednotka
-      <select id="au"><option value="">Aktuální jednotka</option></select>
-    </label>
   </header>
 
   <div id="page-notice" hidden></div>
@@ -217,6 +215,7 @@ table.mini tr.expired td{color:var(--muted)}
       <button class="btn btn-primary" id="go" type="submit">Hledat</button>
     </div>
     <div class="opts">
+      <span class="opt"><span class="opt-label">Divize</span><span class="chips" id="divs"></span></span>
       <span class="opt"><span class="opt-label">Hledat podle</span>
         <span class="seg" data-setting="mode">
           <button type="button" data-v="auto">Automaticky</button><button type="button" data-v="id">ID</button><button type="button" data-v="name">Název</button>
@@ -234,7 +233,7 @@ table.mini tr.expired td{color:var(--muted)}
       </span>
       <label class="check"><input type="checkbox" id="hideEnded"> Skrýt ukončené</label>
     </div>
-    <div class="hint">Víc ID oddělte čárkou nebo mezerou (lze vložit sloupec z Excelu). Víc slov v názvu musí být obsaženo všechna. Hledání podle ID ignoruje filtr typu a stavu.</div>
+    <div class="hint">Víc ID oddělte čárkou nebo mezerou (lze vložit sloupec z Excelu). Víc slov v názvu musí být obsaženo všechna. Hledá se jen v materiálech PM (jednotka Centrála) a PI (jednotka Prusa Industrial). Hledání podle ID ignoruje filtr typu a stavu.</div>
   </form>
 
   <section class="toolbar" aria-label="Nastavení spotřeby">
@@ -276,6 +275,7 @@ table.mini tr.expired td{color:var(--muted)}
 
   <div class="foot">
     <div><b>Spotřeba</b> se počítá z výdejek ve Factorify za uzavřené dny (bez dneška). <b>Výroba</b> = výdej do výrobní dávky, <b>Ostatní výdeje</b> = výdej na pracoviště, středisko, odpis apod., <b>Prodej a expedice</b> = výdej na dodací list nebo vnitropodnikový prodej. Storna se odečítají.</div>
+    <div><b>Divize</b> je podle prefixu typu zboží: PM se čte z účetní jednotky Centrála, PI z jednotky Prusa Industrial, spotřeba i sklad jsou za tu jednotku.</div>
     <div><b>Cena dle ceníku</b> je z platného nákupního ceníku (hlavní dodavatel, nejnižší MOQ). <b>Poslední nákup</b> je jednotková cena z poslední nákupní objednávky. <b>VNC</b> je vážená nákupní cena v CZK. Data se čtou živě s vašimi oprávněními ve Factorify.</div>
   </div>
 </div>
@@ -304,9 +304,17 @@ const store = {
   set(k, v) { try { localStorage.setItem('ffmat.' + k, JSON.stringify(v)); } catch {} },
 };
 
-const DEF_SETTINGS = { cats: { prod: true, other: true, sale: false }, dailyBase: '30', monthBase: '30', type: 'material', hideEnded: true, limit: 50, mode: 'auto' };
+const DIVS = [
+  { k: 'PM', au: /centr/i, auLabel: 'Centrála' },
+  { k: 'PI', au: /industrial/i, auLabel: 'Prusa Industrial' },
+];
+const DEF_SETTINGS = { cats: { prod: true, other: true, sale: false }, divs: { PM: true, PI: true }, dailyBase: '30', monthBase: '30', type: 'material', hideEnded: true, limit: 50, mode: 'auto' };
 const savedSettings = store.get('settings', {});
-const settings = Object.assign({}, DEF_SETTINGS, savedSettings, { cats: Object.assign({}, DEF_SETTINGS.cats, savedSettings.cats || {}) });
+const settings = Object.assign({}, DEF_SETTINGS, savedSettings, {
+  cats: Object.assign({}, DEF_SETTINGS.cats, savedSettings.cats || {}),
+  divs: Object.assign({}, DEF_SETTINGS.divs, savedSettings.divs || {}),
+  mode: 'auto',
+});
 
 /* ---------- formátování ---------- */
 const nf = (max, min = 0) => new Intl.NumberFormat('cs-CZ', { maximumFractionDigits: max, minimumFractionDigits: min });
@@ -328,18 +336,19 @@ function int(v) { const n = Number(v); if (!Number.isSafeInteger(n)) throw new E
 function sqlMeta() {
   return `WITH mx AS (SELECT MAX(id) AS m FROM stock_moves),
 grid AS (
-  SELECT sm.id, sm.moved_at FROM stock_moves sm
+  SELECT sm.id, sm.created_at FROM stock_moves sm
   WHERE sm.id = ANY(ARRAY(SELECT generate_series(GREATEST((SELECT m FROM mx) - 100000000, 1), (SELECT m FROM mx), 250000)))
 )
 SELECT (SELECT m FROM mx) AS max_id,
-  COALESCE((SELECT MAX(id) FROM grid WHERE moved_at < CURRENT_DATE - 33), 0) AS start_30,
-  COALESCE((SELECT MAX(id) FROM grid WHERE moved_at < LEAST(CURRENT_DATE - 365, (date_trunc('month', CURRENT_DATE) - interval '12 months')::date) - 3), 0) AS start_year,
+  COALESCE((SELECT MAX(id) FROM grid WHERE created_at < CURRENT_DATE - 33), 0) AS start_30,
+  COALESCE((SELECT MAX(id) FROM grid WHERE created_at < LEAST(CURRENT_DATE - 365, (date_trunc('month', CURRENT_DATE) - interval '12 months')::date) - 3), 0) AS start_year,
   to_char(CURRENT_DATE, 'YYYY-MM-DD') AS today,
   (SELECT id FROM currencies WHERE reference LIMIT 1) AS ref_currency`;
 }
 
-function sqlSearch(p) {
-  const where = [`COALESCE(gs.code, '') <> 'DELETED'`];
+function sqlSearch(p, div) {
+  if (!/^[A-Z]{2}$/.test(div)) throw new Error('Neplatná divize');
+  const where = [`COALESCE(gs.code, '') <> 'DELETED'`, `split_part(MULTI_LANG(gt.name), ' - ', 1) = '${div}'`];
   let ord, nameJoin = '';
   if (p.mode === 'ids') {
     const arr = `'{${p.ids.map(int).join(',')}}'::bigint[]`;
@@ -350,8 +359,11 @@ function sqlSearch(p) {
     if (settings.type === 'material') where.push(`gt.classification = 'MATERIAL'`);
     else if (settings.type === 'material_goods') where.push(`gt.classification IN ('MATERIAL', 'GOODS')`);
     if (settings.hideEnded) where.push(`COALESCE(gs.code, '') NOT IN ('ENDED', 'SMT_ENDED') AND NOT COALESCE(gs.archived, FALSE)`);
-    for (const t of p.terms) where.push(`nm.txt ILIKE '%${sqlStr(likeEsc(t))}%'`);
-    ord = `ROW_NUMBER() OVER (ORDER BY (gs.code = 'ACTIVE') DESC, MULTI_LANG(g.name), g.id)`;
+    const nameMatch = p.terms.map(t => `nm.txt ILIKE '%${sqlStr(likeEsc(t))}%'`).join(' AND ');
+    const numIds = p.terms.every(t => /^\d{1,12}$/.test(t)) ? p.terms.map(int) : [];
+    const idArr = `'{${numIds.join(',')}}'::bigint[]`;
+    where.push(numIds.length ? `(${nameMatch} OR g.id = ANY(${idArr}))` : `(${nameMatch})`);
+    ord = `ROW_NUMBER() OVER (ORDER BY ${numIds.length ? `(g.id = ANY(${idArr})) DESC, ` : ''}(gs.code = 'ACTIVE') DESC, MULTI_LANG(g.name), g.id)`;
   }
   const limit = int(settings.limit) + 1;
   return `WITH g AS (
@@ -408,17 +420,20 @@ const F_SALE = `sd.consuming_batch_id IS NULL AND (sd.delivery_bill_id IS NOT NU
 const F_OTHER = `sd.consuming_batch_id IS NULL AND sd.delivery_bill_id IS NULL AND sd.operation IS DISTINCT FROM 'SALE'`;
 const F_WIN = `sm.moved_at >= CURRENT_DATE - 365 AND sm.moved_at < CURRENT_DATE`;
 
+/* Řádky s klíčem YYYY-MM-DD jsou dny (poslední 35 dní), řádky s klíčem YYYY-MM jsou měsíce. */
 function sqlCons(kind, gid, lo, hi) {
-  const key = kind === 'daily' ? `to_char(sm.moved_at, 'YYYY-MM-DD')` : `to_char(sm.moved_at, 'YYYY-MM')`;
-  const win = kind === 'monthly' ? `,
-  SUM(-sm.quantity) FILTER (WHERE ${F_WIN} AND ${F_PROD}) AS prod_w,
-  SUM(-sm.quantity) FILTER (WHERE ${F_WIN} AND ${F_OTHER}) AS other_w,
-  SUM(-sm.quantity) FILTER (WHERE ${F_WIN} AND ${F_SALE}) AS sale_w` : '';
+  const key = kind === 'daily'
+    ? `CASE WHEN sm.moved_at >= CURRENT_DATE - 35 THEN to_char(sm.moved_at, 'YYYY-MM-DD') ELSE to_char(sm.moved_at, 'YYYY-MM') END`
+    : `to_char(sm.moved_at, 'YYYY-MM')`;
   return `SELECT ${key} AS k,
   SUM(-sm.quantity) FILTER (WHERE ${F_PROD}) AS prod,
   SUM(-sm.quantity) FILTER (WHERE ${F_OTHER}) AS other,
-  SUM(-sm.quantity) FILTER (WHERE ${F_SALE}) AS sale${win},
-  COUNT(*) AS n
+  SUM(-sm.quantity) FILTER (WHERE ${F_SALE}) AS sale,
+  SUM(-sm.quantity) FILTER (WHERE ${F_WIN} AND ${F_PROD}) AS prod_w,
+  SUM(-sm.quantity) FILTER (WHERE ${F_WIN} AND ${F_OTHER}) AS other_w,
+  SUM(-sm.quantity) FILTER (WHERE ${F_WIN} AND ${F_SALE}) AS sale_w,
+  COUNT(*) AS n,
+  COUNT(*) FILTER (WHERE sm.moved_at >= CURRENT_DATE - 30) AS n30
 FROM stock_moves sm
 JOIN stock_documents sd ON sd.id = sm.stock_document_id
 WHERE sm.goods_id = ${int(gid)} AND sm.id >= ${int(lo)}${hi != null ? ` AND sm.id < ${int(hi)}` : ''} AND sd.type = 'ISSUE'
@@ -470,8 +485,8 @@ WHERE soi.material_id = ${int(gid)} AND soi.state IN ('NEW', 'DEMANDED', 'ORDERE
 /* ---------- stav ---------- */
 const S = {
   mcp: null, downloads: null, permissions: null,
-  aus: [], au: null,
-  meta: new Map(), metaCur: null,
+  aus: [], divAu: { PM: null, PI: null }, ausLoaded: false,
+  meta: new Map(), today: null,
   rows: [], view: [], more: false, parsed: null,
   sort: { key: null, dir: 1 },
   expanded: new Set(),
@@ -486,9 +501,9 @@ const S = {
 /* ---------- volání Factorify ---------- */
 const queue = [];
 let active = 0;
-function q(sql, { seq = S.seq, priority = false, count = true } = {}) {
+function q(sql, { seq = S.seq, priority = false, count = true, au = null } = {}) {
   return new Promise((resolve, reject) => {
-    const job = { sql, seq, resolve, reject, count: count && seq != null };
+    const job = { sql, seq, au, resolve, reject, count: count && seq != null };
     if (job.count && seq === S.seq) S.jobs.total++;
     priority ? queue.unshift(job) : queue.push(job);
     pump();
@@ -500,7 +515,7 @@ function pump() {
     const job = queue.shift();
     if (job.seq != null && job.seq !== S.seq) { job.reject({ code: 'stale', message: 'Zastaralý dotaz' }); continue; }
     active++;
-    runSql(job.sql).then(job.resolve, job.reject).finally(() => {
+    runSql(job.sql, job.au).then(job.resolve, job.reject).finally(() => {
       active--;
       if (job.count && job.seq === S.seq) S.jobs.done++;
       scheduleStatus();
@@ -508,19 +523,19 @@ function pump() {
     });
   }
 }
-function auInput() {
-  return S.au && !S.au.current ? { accountingUnitId: String(S.au.id) } : {};
+function auInput(au) {
+  return au && !au.current ? { accountingUnitId: String(au.id) } : {};
 }
-async function runSql(sql, retried = false) {
+async function runSql(sql, au, retried = false) {
   if (!S.mcp) throw { code: 'no_mcp', message: 'Připojení k Factorify není v tomto zobrazení k dispozici.' };
   let res;
   try {
-    res = await S.mcp.callTool(SERVER, 'execute_sql', Object.assign({ query: sql }, auInput()), { cache: { staleTime: 300000, gcTime: 3600000 } });
+    res = await S.mcp.callTool(SERVER, 'execute_sql', Object.assign({ query: sql }, auInput(au)), { cache: { staleTime: 300000, gcTime: 3600000 } });
   } catch (e) {
     const err = normErr(e);
     if (err.retryable && !retried) {
       await new Promise(r => setTimeout(r, (err.retryAfterMs || 800) + Math.random() * 900));
-      return runSql(sql, true);
+      return runSql(sql, au, true);
     }
     throw err;
   }
@@ -574,12 +589,12 @@ function pageError(e) {
 }
 
 /* ---------- meta: hranice ID pohybů pro 30 dní a rok ---------- */
-async function getMeta() {
-  const key = S.au ? String(S.au.id) : 'cur';
+async function getMeta(au) {
+  const key = au ? String(au.id) : 'cur';
   const hit = S.meta.get(key);
   if (hit && Date.now() - hit.ts < 15 * 60 * 1000) return hit.v;
   const p = (async () => {
-    const [r] = await q(sqlMeta(), { seq: null, priority: true });
+    const [r] = await q(sqlMeta(), { seq: null, priority: true, au });
     return { maxId: +r.max_id, start30: +r.start_30, startYear: +r.start_year, today: r.today, ref: r.ref_currency || 'CZK' };
   })();
   S.meta.set(key, { ts: Date.now(), v: p });
@@ -606,50 +621,69 @@ async function search(text) {
   const parsed = parseQuery(text);
   if (parsed.error) { toast(parsed.error); return; }
   if (!S.mcp) { pageError({ code: 'no_mcp' }); return; }
+  const divs = DIVS.filter(d => settings.divs[d.k] && S.divAu[d.k]);
+  if (!divs.length) { toast('Žádná z vybraných divizí není dostupná.'); return; }
   store.set('last', text.trim());
   const seq = ++S.seq;
   S.jobs = { total: 0, done: 0 };
   queue.splice(0).forEach(j => j.reject({ code: 'stale' }));
-  S.parsed = parsed; S.rows = []; S.view = []; S.expanded.clear(); S.more = false; S.loadingBase = true;
+  S.parsed = parsed; S.rows = []; S.view = []; S.expanded.clear(); S.more = false; S.loadingBase = true; S.searchedDivs = divs.map(d => d.k); S.divErrors = [];
   $('#page-notice').hidden = true;
   renderAll();
-  const metaP = getMeta();
-  metaP.catch(() => {});
-  let rows;
-  try {
-    rows = await q(sqlSearch(parsed), { seq, priority: true });
-  } catch (e) {
-    if (seq !== S.seq || e.code === 'stale') return;
-    S.loadingBase = false; S.baseError = e;
-    if (PAGE_LEVEL.has(e.code)) pageError(e);
+  const metas = {};
+  for (const d of divs) { metas[d.k] = getMeta(S.divAu[d.k]); metas[d.k].catch(() => {}); }
+  const results = await Promise.allSettled(divs.map(d => q(sqlSearch(parsed, d.k), { seq, priority: true, au: S.divAu[d.k] })));
+  if (seq !== S.seq) return;
+  const failed = results.filter(r => r.status === 'rejected').map(r => r.reason);
+  if (failed.some(e => e && e.code === 'stale')) return;
+  S.loadingBase = false;
+  if (failed.length === results.length) {
+    S.baseError = failed[0];
+    if (PAGE_LEVEL.has(failed[0].code)) pageError(failed[0]);
     renderAll();
     return;
   }
-  if (seq !== S.seq) return;
-  S.loadingBase = false; S.baseError = null;
-  S.more = rows.length > settings.limit;
-  S.rows = rows.slice(0, settings.limit).map(mkRow);
+  S.baseError = null;
+  S.divErrors = divs.map((d, i) => results[i].status === 'rejected' ? `${d.k}: ${errText(results[i].reason)}` : null).filter(Boolean);
+  let rows = [];
+  divs.forEach((d, i) => {
+    if (results[i].status !== 'fulfilled') return;
+    const got = results[i].value;
+    if (got.length > settings.limit) S.more = true;
+    rows.push(...got.slice(0, settings.limit).map(r => mkRow(r, d.k, S.divAu[d.k])));
+  });
+  if (parsed.mode === 'ids') rows.sort((x, y) => parsed.ids.indexOf(x.id) - parsed.ids.indexOf(y.id));
+  else if (parsed.terms.every(t => /^\d{1,12}$/.test(t))) {
+    const ids = parsed.terms.map(Number);
+    rows.sort((x, y) => (ids.includes(y.id) ? 1 : 0) - (ids.includes(x.id) ? 1 : 0));
+  }
+  S.rows = rows;
   if (parsed.mode === 'ids' && S.rows.length === 1) S.expanded.add(S.rows[0].id);
   renderAll();
   for (const id of S.expanded) { const r = rowById(id); if (r) loadDetail(r, seq); }
-  try { S.metaCur = await metaP; } catch (e) {
+  await Promise.all(divs.map(async d => {
+    let meta;
+    try { meta = await metas[d.k]; } catch (e) {
+      if (seq !== S.seq) return;
+      S.rows.filter(r => r.div === d.k).forEach(r => { r.cons = { status: 'error', error: e, daily: {}, monthly: {}, has30: false }; markDirty(r.id); });
+      return;
+    }
     if (seq !== S.seq) return;
-    S.metaCur = null;
-    S.rows.forEach(r => { r.cons = { status: 'error', error: e, daily: {}, monthly: {}, has30: false }; });
-    renderAll();
-    return;
-  }
+    if (!S.today) S.today = meta.today;
+    S.rows.filter(r => r.div === d.k).forEach(r => { r.meta = meta; });
+  }));
   if (seq !== S.seq) return;
   renderAll();
-  for (const r of S.view.length ? S.view : S.rows) loadConsumption(r, seq);
+  for (const r of S.view.length ? S.view : S.rows) if (r.meta) loadConsumption(r, seq);
 }
 
-function mkRow(r) {
+function mkRow(r, div, au) {
   const ref = r.ref_currency || 'CZK';
   const rate = num(r.rate) ?? (r.currency === ref ? 1 : null);
   const lrate = num(r.last_rate) ?? (r.last_currency === ref ? 1 : null);
   return {
-    id: +r.id, name: r.name || '(bez názvu)', unit: r.unit, unitLabel: r.unit_label || r.unit || '',
+    id: +r.id, div, au, meta: null,
+    name: r.name || '(bez názvu)', unit: r.unit, unitLabel: r.unit_label || r.unit || '',
     type: r.goods_type || '', cls: r.classification, state: r.state || '', stateCode: r.state_code || '',
     supplier: r.supplier || null, isPrimary: !!r.is_primary, nSuppliers: +r.n_suppliers || 0,
     price: num(r.price), currency: r.currency || '', priceCzk: num(r.price) != null && rate != null ? +r.price * rate : null,
@@ -663,17 +697,17 @@ function mkRow(r) {
 const rowById = id => S.rows.find(r => r.id === id);
 
 /* ---------- spotřeba ---------- */
-async function runAdaptive(gid, lo, hi, kind, seq, meta, depth = 0) {
+async function runAdaptive(row, lo, hi, kind, seq, depth = 0) {
   try {
-    return await q(sqlCons(kind, gid, lo, hi), { seq });
+    return await q(sqlCons(kind, row.id, lo, hi), { seq, au: row.au });
   } catch (e) {
     if (e && e.code !== 'stale' && isTimeout(e) && depth < 5) {
-      const top = hi != null ? hi : meta.maxId + 1;
+      const top = hi != null ? hi : row.meta.maxId + 1;
       if (top - lo > 100000) {
         const mid = Math.floor((lo + top) / 2);
         const [a, b] = await Promise.all([
-          runAdaptive(gid, lo, mid, kind, seq, meta, depth + 1),
-          runAdaptive(gid, mid, hi, kind, seq, meta, depth + 1),
+          runAdaptive(row, lo, mid, kind, seq, depth + 1),
+          runAdaptive(row, mid, hi, kind, seq, depth + 1),
         ]);
         return a.concat(b);
       }
@@ -681,15 +715,19 @@ async function runAdaptive(gid, lo, hi, kind, seq, meta, depth = 0) {
     throw e;
   }
 }
-function addInto(map, k, r, fields) {
-  const o = map[k] || (map[k] = {});
-  for (const f of fields) o[f] = (o[f] || 0) + (num(r[f]) || 0);
+const SUMS = ['prod', 'other', 'sale', 'prod_w', 'other_w', 'sale_w'];
+function addRows(c, rows) {
+  for (const r of rows) {
+    const map = String(r.k).length === 10 ? c.daily : c.monthly;
+    const o = map[r.k] || (map[r.k] = {});
+    for (const f of SUMS) o[f] = (o[f] || 0) + (num(r[f]) || 0);
+  }
 }
 
 async function loadConsumption(row, seq) {
-  const meta = S.metaCur;
+  const meta = row.meta;
   if (!meta) return;
-  const ckey = (S.au ? S.au.id : 'cur') + ':' + row.id;
+  const ckey = (row.au ? row.au.id : 'cur') + ':' + row.id;
   const cached = S.consCache.get(ckey);
   if (cached && cached.status === 'done' && cached.today === meta.today && Date.now() - cached.ts < 20 * 60 * 1000) {
     row.cons = cached; markDirty(row.id); return;
@@ -697,16 +735,16 @@ async function loadConsumption(row, seq) {
   const c = row.cons = { status: 'loading', daily: {}, monthly: {}, has30: false, today: meta.today, ts: Date.now() };
   markDirty(row.id);
   try {
-    const d = await runAdaptive(row.id, meta.start30, null, 'daily', seq, meta);
+    const d = await runAdaptive(row, meta.start30, null, 'daily', seq);
     if (seq !== S.seq) return;
-    let n30 = 0;
-    for (const r of d) { addInto(c.daily, r.k, r, ['prod', 'other', 'sale']); n30 += +r.n || 0; }
+    addRows(c, d);
+    const nAll = d.reduce((s, r) => s + (+r.n || 0), 0);
     c.has30 = true;
     markDirty(row.id);
     const span30 = Math.max(1, meta.maxId - meta.start30);
     const spanY = meta.start30 - meta.startYear;
     if (spanY > 0) {
-      const est = n30 * spanY / span30;
+      const est = nAll * spanY / span30;
       const k = Math.min(16, Math.max(1, Math.ceil(est / 5000)));
       const step = Math.ceil(spanY / k);
       const parts = [];
@@ -714,9 +752,9 @@ async function loadConsumption(row, seq) {
         const lo = meta.startYear + i * step;
         const hi = Math.min(meta.start30, lo + step);
         if (hi <= lo) continue;
-        parts.push(runAdaptive(row.id, lo, hi, 'monthly', seq, meta).then(rows => {
+        parts.push(runAdaptive(row, lo, hi, 'monthly', seq).then(rows => {
           if (seq !== S.seq) return;
-          for (const r of rows) addInto(c.monthly, r.k, r, ['prod', 'other', 'sale', 'prod_w', 'other_w', 'sale_w']);
+          addRows(c, rows);
           markDirty(row.id);
         }));
       }
@@ -736,7 +774,7 @@ async function loadConsumption(row, seq) {
 }
 
 function consOf(row) {
-  const c = row.cons, m = S.metaCur;
+  const c = row.cons, m = S.today ? { today: S.today } : null;
   if (!c || !m) return null;
   const cats = settings.cats;
   const pick = (o, s = '') => o ? (cats.prod ? +(o['prod' + s] || 0) : 0) + (cats.other ? +(o['other' + s] || 0) : 0) + (cats.sale ? +(o['sale' + s] || 0) : 0) : 0;
@@ -773,10 +811,10 @@ async function loadDetail(row, seq = S.seq) {
   row.detail = { status: 'loading', showAll: false };
   markDirty(row.id);
   const [pl, po, st, op] = await Promise.allSettled([
-    q(sqlPriceLists(row.id), { seq, priority: true, count: false }),
-    q(sqlOrders(row.id), { seq, priority: true, count: false }),
-    q(sqlStocks(row.id), { seq, priority: true, count: false }),
-    q(sqlOpenOrders(row.id), { seq, priority: true, count: false }),
+    q(sqlPriceLists(row.id), { seq, priority: true, count: false, au: row.au }),
+    q(sqlOrders(row.id), { seq, priority: true, count: false, au: row.au }),
+    q(sqlStocks(row.id), { seq, priority: true, count: false, au: row.au }),
+    q(sqlOpenOrders(row.id), { seq, priority: true, count: false, au: row.au }),
   ]);
   if (seq !== S.seq) return;
   const val = r => r.status === 'fulfilled' ? r.value : null;
@@ -818,6 +856,7 @@ function coverCell(row) {
 
 const COLS = [
   { key: 'id', label: 'ID', def: true, num: true, sort: r => r.id, cell: r => `<span class="id">${r.id}</span>` },
+  { key: 'div', label: 'Divize', def: true, sort: r => r.div, cell: r => `<span class="pill ${r.div === 'PI' ? 'info' : ''} mono" title="${escH(r.au ? r.au.name : '')}">${escH(r.div)}</span>` },
   { key: 'name', label: 'Název', def: true, sort: r => r.name.toLowerCase(),
     cell: r => `<span class="nm">${escH(r.name)}</span><span class="sl">${escH(r.type)}${r.state ? ` <span class="pill ${stateCls(r.stateCode)}">${escH(r.state)}</span>` : ''}</span>` },
   { key: 'supplier', label: 'Dodavatel', def: true, sort: r => (r.supplier || r.lastSupplier || '').toLowerCase(),
@@ -828,7 +867,7 @@ const COLS = [
     cell: r => `${r.moq != null ? `${fmtQty(r.moq)} <span class="u">${escH(r.unitLabel)}</span>` : '—'}${r.packQty != null ? `<span class="sl">balení ${fmtQty(r.packQty)}</span>` : ''}` },
   { key: 'price', label: 'Cena dle ceníku', sub: 'za jednotku', def: true, num: true, sort: r => r.priceCzk ?? r.price,
     cell: r => r.price == null ? '—<span class="sl">bez platného ceníku</span>'
-      : `${fmtPrice(r.price)} <span class="u">${escH(r.currency)}</span>${r.currency !== r.ref && r.priceCzk != null ? `<span class="sl">≈ ${fmtPrice(r.priceCzk)} ${escH(r.ref)}</span>` : ''}${r.nTiers > 1 ? `<span class="sl">${r.nTiers} cenové hladiny</span>` : ''}` },
+      : `${fmtPrice(r.price)} <span class="u">${escH(r.currency)}</span>${!r.currency ? '<span class="sl">měna neuvedena</span>' : ''}${r.currency !== r.ref && r.priceCzk != null ? `<span class="sl">≈ ${fmtPrice(r.priceCzk)} ${escH(r.ref)}</span>` : ''}${r.nTiers > 1 ? `<span class="sl">${r.nTiers} cenové hladiny</span>` : ''}` },
   { key: 'last', label: 'Poslední nákup', sub: 'cena za jednotku', def: true, num: true, sort: r => r.lastPriceCzk ?? r.lastPrice,
     cell: r => r.lastPrice == null ? '—'
       : `${fmtPrice(r.lastPrice)} <span class="u">${escH(r.lastCurrency)}</span><span class="sl" title="${escH(r.lastSupplier || '')}">${fmtDate(r.lastOrdered)}</span>` },
@@ -846,7 +885,7 @@ const COLS = [
   { key: 'type', label: 'Typ zboží', def: false, sort: r => r.type.toLowerCase(), cell: r => escH(r.type) || '—' },
 ];
 function monthSub() {
-  if (settings.monthBase === 'prev' && S.metaCur) { const k = addMonths(S.metaCur.today, -1); return `${MONTHS_FULL[+k.slice(5) - 1]} ${k.slice(0, 4)}`; }
+  if (settings.monthBase === 'prev' && S.today) { const k = addMonths(S.today, -1); return `${MONTHS_FULL[+k.slice(5) - 1]} ${k.slice(0, 4)}`; }
   return settings.monthBase === 'avg' ? 'Ø za 12 měsíců' : 'posl. 30 dní';
 }
 const colOn = c => S.cols[c.key] ?? c.def;
@@ -948,7 +987,7 @@ function renderEmpty() {
   if (!S.parsed) {
     el.innerHTML = `<div class="empty">
       <h2>Najděte materiál podle ID nebo názvu</h2>
-      <p>Pro každý nalezený materiál se načte hlavní dodavatel, MOQ, cena z ceníku a z poslední objednávky a spotřeba za den, měsíc a rok. Klikem na řádek otevřete detail s grafem spotřeby, všemi ceníky a posledními objednávkami.</p>
+      <p>Hledá se v materiálech PM (Centrála) a PI (Prusa Industrial). Pro každý nalezený materiál se načte hlavní dodavatel, MOQ, cena z ceníku a z poslední objednávky a spotřeba za den, měsíc a rok. Klikem na řádek otevřete detail s grafem spotřeby, všemi ceníky a posledními objednávkami.</p>
       <div class="ex"><span class="opt-label" style="align-self:center">Zkuste</span>
         <button class="btn btn-sm" type="button" data-example="šroub M3">šroub M3</button>
         <button class="btn btn-sm" type="button" data-example="ložisko">ložisko</button>
@@ -965,7 +1004,7 @@ function renderEmpty() {
     $('#tbl').hidden = true; return;
   }
   if (!S.rows.length) {
-    el.innerHTML = `<div class="empty"><h2>Nic nenalezeno</h2><p>${S.parsed.mode === 'ids' ? 'Žádné zboží s tímto ID neexistuje, nebo je smazané či mimo vybranou účetní jednotku.' : 'Zkuste kratší nebo jiné slovo, přepněte Typ na „Vše“ nebo vypněte „Skrýt ukončené“.'}</p></div>`;
+    el.innerHTML = `<div class="empty"><h2>Nic nenalezeno</h2><p>${S.parsed.mode === 'ids' ? 'Mezi materiály PM ani PI takové ID není. Zboží může patřit do jiného typu (např. PC, PD, PP), být smazané, nebo k němu nemáte přístup.' : 'Zkuste kratší nebo jiné slovo, přepněte Typ na „Vše“ nebo vypněte „Skrýt ukončené“. Hledá se jen v typech zboží PM a PI.'}</p></div>`;
     $('#tbl').hidden = true; return;
   }
   if (!S.view.length) {
@@ -987,12 +1026,13 @@ let statusQueued = false;
 function scheduleStatus() { if (!statusQueued) { statusQueued = true; requestAnimationFrame(() => { statusQueued = false; renderStatus(); }); } }
 function renderStatus() {
   const el = $('#status');
-  if (!S.parsed || S.loadingBase) { el.innerHTML = S.metaCur ? `<span>Data k ${fmtDate(S.metaCur.today)}</span>` : ''; return; }
+  if (!S.parsed || S.loadingBase) { el.innerHTML = S.today ? `<span>Data k ${fmtDate(S.today)}</span>` : ''; return; }
   const n = S.view.length, t = S.rows.length;
-  const auName = S.au ? S.au.name : '';
   const parts = [`<span><b>${n}</b> ${n === 1 ? 'položka' : n >= 2 && n <= 4 ? 'položky' : 'položek'}${n !== t ? ` z ${t}` : ''}${S.more ? ` <span class="pill warn" title="Upřesněte hledání nebo zvyšte max. počet výsledků">zobrazeno prvních ${settings.limit}</span>` : ''}</span>`];
-  if (S.metaCur) parts.push(`<span>spotřeba k ${fmtDate(addDays(S.metaCur.today, -1))}</span>`);
-  if (auName) parts.push(`<span>${escH(auName)}</span>`);
+  const byDiv = (S.searchedDivs || []).map(k => `${k} ${S.view.filter(r => r.div === k).length}`);
+  if (byDiv.length > 1) parts.push(`<span>${byDiv.join(' · ')}</span>`);
+  if (S.today) parts.push(`<span>spotřeba k ${fmtDate(addDays(S.today, -1))}</span>`);
+  if (S.divErrors && S.divErrors.length) parts.push(`<span class="pill bad" title="${escH(S.divErrors.join(' | '))}">část výsledků chybí</span>`);
   const { total, done } = S.jobs;
   const loading = S.rows.some(r => r.cons && r.cons.status === 'loading');
   if (loading && total > 0) parts.push(`<span class="prog" role="status"><span class="prog-bar"><i style="width:${Math.round(done / Math.max(total, 1) * 100)}%"></i></span>Načítám spotřebu ${done}/${total}</span>`);
@@ -1035,7 +1075,7 @@ function legendHtml() {
   return `<div class="legend">${cats.map(c => `<span><i style="background:var(${c.v})"></i>${c.label}</span>`).join('')}</div>`;
 }
 function monthChart(row, k) {
-  const m = S.metaCur;
+  const m = S.today ? { today: S.today } : null;
   if (!m || !k || !k.hasY) return `<div class="card"><h4>Spotřeba po měsících <span>12 měsíců + aktuální</span></h4><p class="empty-note">${row.cons && row.cons.status === 'error' ? 'Nedostupné.' : '<span class="spin"></span> Načítám rok pohybů…'}</p></div>`;
   const c = row.cons, buckets = [];
   for (let i = -12; i <= 0; i++) {
@@ -1052,7 +1092,7 @@ function monthChart(row, k) {
   return `<div class="card"><h4>Spotřeba po měsících <span>${u(row)} · aktuální měsíc je rozpracovaný</span></h4>${legendHtml()}${barChart(buckets, row, 'm', 1)}</div>`;
 }
 function dayChart(row, k) {
-  const m = S.metaCur;
+  const m = S.today ? { today: S.today } : null;
   if (!m || !k || !k.has30) return `<div class="card"><h4>Posledních 30 dní <span>po dnech</span></h4><p class="empty-note"><span class="spin"></span> Načítám…</p></div>`;
   const buckets = [];
   for (let i = -30; i <= -1; i++) {
@@ -1177,12 +1217,13 @@ function exportTable() {
   for (const c of cols) {
     switch (c.key) {
       case 'id': add('ID', r => r.id); break;
+      case 'div': add('Divize', r => r.div); break;
       case 'name': add('Název', r => r.name); add('Jednotka', r => r.unitLabel); add('Stav', r => r.state); break;
       case 'supplier': add('Dodavatel', r => r.supplier || r.lastSupplier || ''); break;
       case 'moq': add('MOQ', r => dec(r.moq)); add('Velikost balení', r => dec(r.packQty)); break;
       case 'price': add('Cena dle ceníku', r => dec(r.price)); add('Měna ceníku', r => r.currency); break;
       case 'last': add('Poslední nákupní cena', r => dec(r.lastPrice)); add('Měna posl. nákupu', r => r.lastCurrency); add('Datum posl. nákupu', r => r.lastOrdered || ''); break;
-      case 'vnc': add('VNC (' + (S.metaCur ? S.metaCur.ref : 'CZK') + ')', r => dec(r.vnc)); break;
+      case 'vnc': add('VNC (CZK)', r => dec(r.vnc)); break;
       case 'daily': add('Spotřeba / den (' + (settings.dailyBase === '365' ? 'Ø 365 dní' : 'Ø 30 dní') + ')', r => dec(consOf(r)?.daily)); break;
       case 'month': add('Spotřeba / měsíc (' + monthSub() + ')', r => dec(consOf(r)?.month)); break;
       case 'year': add('Spotřeba / rok (365 dní)', r => dec(consOf(r)?.year)); break;
@@ -1218,7 +1259,7 @@ async function copyText(text, okMsg) {
     toast(ok ? okMsg : 'Kopírování prohlížeč nepovolil.');
   }
 }
-function saveSettings() { store.set('settings', settings); }
+function saveSettings() { const { mode, ...rest } = settings; store.set('settings', rest); }
 function syncControls() {
   for (const seg of $$('.seg[data-setting]')) {
     const key = seg.dataset.setting;
@@ -1227,6 +1268,12 @@ function syncControls() {
   $('#type').value = settings.type;
   $('#limit').value = String(settings.limit);
   $('#hideEnded').checked = !!settings.hideEnded;
+  $('#divs').innerHTML = DIVS.map(d => {
+    const au = S.divAu[d.k];
+    const off = S.ausLoaded && !au;
+    const title = au ? `${d.k} se čte z jednotky ${au.name}` : off ? `Nemáte přístup k jednotce ${d.auLabel}` : `${d.k} · ${d.auLabel}`;
+    return `<button type="button" class="chip div-chip" data-div="${d.k}" aria-pressed="${!!settings.divs[d.k] && !off}"${off ? ' disabled' : ''} title="${escH(title)}"><span class="mono">${d.k}</span><span class="u">${escH(d.auLabel)}</span></button>`;
+  }).join('');
   $('#cats').innerHTML = CATS.map(c => `<button type="button" class="chip" data-cat="${c.k}" aria-pressed="${!!settings.cats[c.k]}" style="--c:var(${c.v})"><span class="sw"></span>${c.label}</button>`).join('');
   $('#colpanel').innerHTML = COLS.map(c => `<label><input type="checkbox" data-col="${c.key}" ${colOn(c) ? 'checked' : ''}${c.key === 'id' || c.key === 'name' ? ' disabled' : ''}> ${escH(c.label)}</label>`).join('')
     + `<button class="btn btn-sm" type="button" data-act="cols-reset" style="margin-top:6px">Výchozí sloupce</button>`;
@@ -1260,6 +1307,15 @@ function bind() {
       saveSettings(); syncControls(); renderAll();
       return;
     }
+    const dv = e.target.closest('.chip[data-div]');
+    if (dv) {
+      const k = dv.dataset.div;
+      settings.divs[k] = !settings.divs[k];
+      if (!DIVS.some(d => settings.divs[d.k] && S.divAu[d.k])) settings.divs[k] = true;
+      saveSettings(); syncControls();
+      if (S.parsed) search($('#q').value);
+      return;
+    }
     const ex = e.target.closest('[data-example]');
     if (ex) { $('#q').value = ex.dataset.example; search(ex.dataset.example); return; }
     const sortBtn = e.target.closest('[data-sort]');
@@ -1275,7 +1331,7 @@ function bind() {
       const id = +act.dataset.id, row = rowById(id);
       switch (act.dataset.act) {
         case 'toggle': toggleRow(id); break;
-        case 'retry': if (row) { if (!S.metaCur) search($('#q').value); else loadConsumption(row, S.seq); } break;
+        case 'retry': if (row) { if (!row.meta) search($('#q').value); else loadConsumption(row, S.seq); } break;
         case 'research': search($('#q').value); break;
         case 'copy-id': copyText(String(id), `ID ${id} zkopírováno`); break;
         case 'toggle-expired': if (row && row.detail) { row.detail.showAll = !row.detail.showAll; markDirty(id); } break;
@@ -1304,12 +1360,6 @@ function bind() {
   $('#filter').addEventListener('input', e => { clearTimeout(ft); ft = setTimeout(() => { S.filter = e.target.value; renderAll(); }, 120); });
   $('#supplier').addEventListener('change', e => { S.supplier = e.target.value; renderAll(); });
   $('#onlyCons').addEventListener('change', e => { S.onlyCons = e.target.checked; renderAll(); });
-  $('#au').addEventListener('change', e => {
-    const v = e.target.value;
-    S.au = S.aus.find(a => String(a.id) === v) || null;
-    S.consCache.clear();
-    if (S.parsed) search($('#q').value);
-  });
   $('#copy').addEventListener('click', () => {
     if (!S.view.length) { toast('Není co kopírovat.'); return; }
     copyText(toCsv(exportTable(), '\t'), `Zkopírováno ${S.view.length} řádků, vložte do Excelu.`);
@@ -1317,7 +1367,7 @@ function bind() {
   $('#export').addEventListener('click', async () => {
     if (!S.view.length) { toast('Není co exportovat.'); return; }
     const csv = '\ufeff' + toCsv(exportTable(), ';');
-    const day = S.metaCur ? S.metaCur.today : new Date().toISOString().slice(0, 10);
+    const day = S.today || new Date().toISOString().slice(0, 10);
     try { await S.downloads.save({ filename: `material-ff-${day}.csv`, data: csv }); toast('CSV uloženo.'); }
     catch (e) {
       const c = e && e.code;
@@ -1359,15 +1409,16 @@ async function boot() {
     const res = await mcp.callTool(SERVER, 'list_accounting_units', {}, { cache: { staleTime: 300000, gcTime: 86400000 } });
     let list = payloadOf(res);
     if (list && !Array.isArray(list)) list = list.accountingUnits || list.items || list.rows || null;
-    if (Array.isArray(list) && list.length) {
-      S.aus = list.map(a => ({ id: a.id, name: a.name, current: !!a.current }));
-      S.au = S.aus.find(a => a.current) || null;
-      $('#au').innerHTML = S.aus.map(a => `<option value="${escH(a.id)}"${a.current ? ' selected' : ''}>${escH(a.name)}</option>`).join('');
-    }
+    if (Array.isArray(list) && list.length) S.aus = list.map(a => ({ id: a.id, name: String(a.name || ''), current: !!a.current }));
   } catch (e) {
     const err = normErr(e);
     if (PAGE_LEVEL.has(err.code)) { pageError(err); return; }
   }
+  for (const d of DIVS) S.divAu[d.k] = S.aus.find(a => d.au.test(a.name)) || null;
+  if (!S.divAu.PM && S.aus.length) S.divAu.PM = S.aus.find(a => a.current && a !== S.divAu.PI) || null;
+  if (!S.aus.length) S.divAu.PM = { id: 'cur', name: 'aktuální jednotka', current: true };
+  S.ausLoaded = true;
+  syncControls();
   const h = (location.hash || '').slice(1);
   const last = store.get('last', '');
   const initial = /^\d{1,12}$/.test(h) ? h : last;
