@@ -11,7 +11,8 @@ from burza.context import MarketContext, NewsItem, earnings_blackout, upcoming_e
 from burza.dashboard import build_payload, comparability
 from burza.journal import Journal
 from burza.models import Account, Candle, OrderResult, Signal
-from burza.study_b import AiContextStrategy
+from burza.rules import RuleJudge
+from burza.study_b import AiContextStrategy, make_study_strategy
 from burza.strategy import Strategy
 
 from helpers import config, utc
@@ -39,8 +40,8 @@ class FakeJudge:
         self.decision = decision
         self.prompts = []
 
-    def judge(self, prompt):
-        self.prompts.append(prompt)
+    def decide(self, sig, ctx, now, change):
+        self.prompts.append(build_prompt(sig, ctx, now, change))
         return self.decision
 
 
@@ -112,6 +113,61 @@ class StudyBTests(unittest.TestCase):
         s.max_calls_per_day = 1
         self.assertIsNotNone(s.entry("AAPL", self.candles))
         self.assertIsNone(s.entry("AAPL", self.candles))
+
+
+class RuleJudgeTests(unittest.TestCase):
+    now = utc(2026, 10, 27, 15, 0)
+    sig = Signal("AAPL", "long", 100, 98, 104, "VWAP")
+
+    def news(self, headline, hours_ago=1):
+        return NewsItem("finnhub", "Reuters", headline, "", "http://x/" + headline,
+                        self.now - timedelta(hours=hours_ago), "AAPL")
+
+    def test_negative_news_skips(self):
+        ctx = MarketContext("AAPL", self.now, news=[self.news("Apple misses estimates, cuts guidance"),
+                                                    self.news("Apple faces antitrust probe")])
+        d = RuleJudge().decide(self.sig, ctx, self.now, 0.5)
+        self.assertFalse(d.take)
+        self.assertTrue(d.data["key_items"])
+
+    def test_positive_news_full_size(self):
+        ctx = MarketContext("AAPL", self.now, news=[self.news("Apple beats estimates on record revenue")],
+                            macro={"VIXCLS": {"hodnota": 15}})
+        d = RuleJudge().decide(self.sig, ctx, self.now, 0.8)
+        self.assertTrue(d.take)
+        self.assertEqual(d.size_factor, 1.0)
+
+    def test_priced_in_halves_size(self):
+        ctx = MarketContext("AAPL", self.now, news=[self.news("Apple beats estimates")],
+                            macro={"VIXCLS": {"hodnota": 15}})
+        d = RuleJudge().decide(self.sig, ctx, self.now, 4.5)
+        self.assertTrue(d.take)
+        self.assertEqual(d.size_factor, 0.5)
+
+    def test_market_selloff_and_vix(self):
+        ctx = MarketContext("AAPL", self.now, market_moves={"SPY": -2.0})
+        self.assertFalse(RuleJudge().decide(self.sig, ctx, self.now, 0).take)
+        ctx = MarketContext("AAPL", self.now, macro={"VIXCLS": {"hodnota": 40}})
+        self.assertFalse(RuleJudge().decide(self.sig, ctx, self.now, 0).take)
+
+    def test_fomc_day_halves(self):
+        ctx = MarketContext("AAPL", self.now, events=["Rozhodnutí FOMC – DNES"],
+                            macro={"VIXCLS": {"hodnota": 15}})
+        self.assertEqual(RuleJudge().decide(self.sig, ctx, self.now, 0).size_factor, 0.5)
+
+    def test_free_by_default(self):
+        cfg = config(study="B", fred_api_key="x")
+        self.assertIsInstance(make_study_strategy(cfg).judge, RuleJudge)
+        cfg.ai.provider = "api"
+        self.assertNotIsInstance(make_study_strategy(cfg).judge, RuleJudge)
+
+    def test_free_judge_ignores_call_limit(self):
+        j = Journal(":memory:")
+        s = AiContextStrategy(FixedStrategy(), FakeProvider(MarketContext("AAPL", self.now)), RuleJudge(),
+                              max_calls_per_day=0)
+        s.bind(j, lambda: self.now)
+        candles = [Candle(self.now, 100, 101, 99, 100.5)]
+        self.assertIsNotNone(s.entry("AAPL", candles))
 
 
 class FakeEtoro(Broker):

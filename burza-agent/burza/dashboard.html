@@ -212,7 +212,7 @@ function studyView(s, idx) {
     {h: "Ks", num: 1, f: r => fmt(r.units, 4)}, {h: "P/L", num: 1, f: r => usd(r.pnl), cls: r => signCls(r.pnl)},
     {h: "Náklady", num: 1, f: r => usd(r.costs)}, {h: "Zdroj P/L", f: r => esc(r.pnl_source)},
     {h: "Důvod", f: r => esc(r.close_reason)}], s.trades)}</div>`;
-  if (s.id === "B") html += `<div class="card"><h2>Rozhodnutí AI (posledních 50)</h2>${table([
+  if (s.id === "B") html += `<div class="card"><h2>Posouzení zpráv a makra (posledních 50)</h2>${table([
     {h: "Čas", f: r => dt(r.ts)}, {h: "Symbol", f: r => esc(r.symbol)},
     {h: "Výsledek", f: r => r.error ? "⚠ chyba" : r.take ? "✓ obchod" : "✕ přeskočit"},
     {h: "Jistota", num: 1, f: r => fmt(r.confidence)}, {h: "Velikost", num: 1, f: r => r.size_factor == null ? "–" : "×" + r.size_factor},

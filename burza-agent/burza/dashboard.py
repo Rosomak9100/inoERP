@@ -95,7 +95,8 @@ def _downsample(rows: list[dict]) -> list[dict]:
 
 def study_snapshot(cfg: Config) -> dict:
     base = {"id": cfg.study, "name": cfg.display_name, "mode": cfg.mode,
-            "strategy": cfg.strategy if cfg.study == "A" else f"AI + {cfg.ai.base_strategy}",
+            "strategy": cfg.strategy if cfg.study == "A" else
+            f"{cfg.ai.base_strategy} + {'Claude API' if cfg.ai.provider == 'api' else 'pravidla zpráv/makra'}",
             "methodology": methodology(cfg)}
     db = _connect(cfg.db_path)
     if db is None:
@@ -147,8 +148,9 @@ def methodology(cfg: Config) -> dict:
         "studie": cfg.display_name,
         "rezim": cfg.mode,
         "strategie": cfg.strategy if cfg.study == "A" else
-        f"{cfg.ai.base_strategy} + posouzení kontextu ({cfg.ai.model}, effort {cfg.ai.effort}, "
-        f"min. jistota {cfg.ai.min_confidence})",
+        f"{cfg.ai.base_strategy} + posouzení kontextu " + (
+            f"(Claude API {cfg.ai.model}, effort {cfg.ai.effort})" if cfg.ai.provider == "api"
+            else "(bezplatná pravidla: tón zpráv, už v ceně, trh, VIX, Fed, výsledky)"),
         "data": f"eToro svíčky {cfg.interval}, jen uzavřené svíčky",
         "zpravy": "nepoužívá" if cfg.study == "A" else "Finnhub (zprávy, výsledky), FRED (makro), FOMC kalendář",
         "start": cfg.start_date or "-",

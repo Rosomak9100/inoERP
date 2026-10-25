@@ -6,7 +6,7 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 
 from . import market
-from .ai import ClaudeJudge, build_prompt
+from .ai import ClaudeJudge
 from .context import ContextProvider, earnings_blackout
 from .models import Candle, Position, Signal
 from .strategy import Strategy, make_strategy, session_candles
@@ -20,7 +20,7 @@ class AiContextStrategy(Strategy):
         self.judge = judge
         self.min_confidence = min_confidence
         self.max_calls_per_day = max_calls_per_day
-        self.name = f"ai+{base.name}"
+        self.name = f"kontext+{base.name}"
         self.journal = None
         self.clock = lambda: datetime.now(timezone.utc)
 
@@ -33,7 +33,7 @@ class AiContextStrategy(Strategy):
 
     def _reject(self, sig: Signal, reason: str) -> None:
         if self.journal:
-            self.journal.signal(sig, self.name, False, f"AI filtr: {reason}")
+            self.journal.signal(sig, self.name, False, f"filtr zpráv/makra: {reason}")
 
     def entry(self, symbol: str, candles: list[Candle]) -> Signal | None:
         sig = self.base.entry(symbol, candles)
@@ -58,20 +58,21 @@ class AiContextStrategy(Strategy):
         # začátek obchodního dne (ET) převedený na UTC – deník ukládá časy v UTC
         since = datetime.combine(market.trading_date(now), datetime.min.time(), market.ET) \
             .astimezone(timezone.utc).isoformat(timespec="seconds")
-        if self.journal and self.journal.ai_calls_since(since) >= self.max_calls_per_day:
+        paid = getattr(self.judge, "costs_money", True)
+        if paid and self.journal and self.journal.ai_calls_since(since) >= self.max_calls_per_day:
             self._reject(sig, "denní limit volání AI vyčerpán")
             return None
 
         sess = session_candles(candles)
         change = (sess[-1].close / sess[0].open - 1) * 100 if sess else None
-        dec = self.judge.judge(build_prompt(sig, ctx, now, change))
+        dec = self.judge.decide(sig, ctx, now, change)
         if self.journal:
             self.journal.ai_decision(symbol, candidate, dec.take and dec.error is None, dec.confidence,
                                      dec.size_factor, dec.data or None, news_ids, ctx.macro,
                                      self.judge.model, dec.request_id, dec.input_tokens,
                                      dec.output_tokens, dec.error)
         if dec.error:
-            self._reject(sig, f"chyba AI ({dec.error}) – fail closed")
+            self._reject(sig, f"chyba posouzení ({dec.error}) – obchod se neotevírá")
             return None
         if not dec.take:
             self._reject(sig, dec.data.get("rationale", "AI: přeskočit"))
@@ -80,7 +81,8 @@ class AiContextStrategy(Strategy):
             self._reject(sig, f"nízká jistota {dec.confidence:.2f}")
             return None
         sig.size_factor = dec.size_factor
-        sig.reason = f"{sig.reason} | AI {dec.data.get('context_bias')} ({dec.confidence:.2f}, ×{dec.size_factor})"
+        sig.reason = (f"{sig.reason} | {self.judge.model}: {dec.data.get('context_bias')} "
+                      f"({dec.confidence:.2f}, ×{dec.size_factor})")
         return sig
 
 
@@ -108,6 +110,10 @@ def make_study_strategy(cfg, client=None) -> Strategy:
         FinnhubSource(cfg.finnhub_api_key) if cfg.finnhub_api_key else None,
         FredSource(cfg.fred_api_key) if cfg.fred_api_key else None,
         cfg.ai.news_lookback_hours, cfg.ai.context_cache_minutes, moves)
-    return AiContextStrategy(make_strategy(cfg.ai.base_strategy), provider,
-                             ClaudeJudge(cfg.ai.model, cfg.ai.effort), cfg.ai.min_confidence,
-                             cfg.ai.max_calls_per_day)
+    if cfg.ai.provider == "api":  # placené Claude API – jen když si ho uživatel výslovně zapne
+        judge = ClaudeJudge(cfg.ai.model, cfg.ai.effort)
+    else:                        # výchozí: bezplatná pravidla
+        from .rules import RuleJudge
+        judge = RuleJudge()
+    return AiContextStrategy(make_strategy(cfg.ai.base_strategy), provider, judge,
+                             cfg.ai.min_confidence, cfg.ai.max_calls_per_day)

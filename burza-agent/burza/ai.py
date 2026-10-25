@@ -113,6 +113,10 @@ def build_prompt(sig: Signal, ctx: MarketContext, now: datetime, intraday_change
 
 
 class ClaudeJudge:
+    """Placené Claude API (účtuje se zvlášť od předplatného Claude). Zapíná se ai.provider = "api"."""
+
+    costs_money = True
+
     def __init__(self, model: str = "claude-opus-5-5", effort: str = "medium", client=None):
         self.model = model
         self.effort = effort
@@ -124,6 +128,10 @@ class ClaudeJudge:
             import anthropic  # klíč z ANTHROPIC_API_KEY nebo `ant auth login` profilu
             self._client = anthropic.Anthropic(max_retries=3, timeout=120)
         return self._client
+
+    def decide(self, sig: Signal, ctx: MarketContext, now: datetime,
+               intraday_change_pct: float | None) -> AiDecision:
+        return self.judge(build_prompt(sig, ctx, now, intraday_change_pct))
 
     def judge(self, prompt: str) -> AiDecision:
         import anthropic

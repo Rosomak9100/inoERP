@@ -2,9 +2,9 @@
 
 Dvě souběžné studie, každá s virtuálními **200 000 Kč** přepočtenými stejným kurzem ke dni startu:
 
-| | Studie A – technická | Studie B – AI + zprávy |
+| | Studie A – technická | Studie B – zprávy + makro |
 |---|---|---|
-| Rozhoduje podle | cena a objem (VWAP pullback / opening range breakout) | stejný technický signál, který navíc posoudí **Claude** podle zpráv, výsledků firem, makrodat, Fedu a tržního přehledu |
+| Rozhoduje podle | cena a objem (VWAP pullback / opening range breakout) | stejný technický signál, který navíc posoudí podle zpráv, výsledků firem, makrodat, Fedu a tržního přehledu – **zdarma pevnými pravidly** (tón zpráv, „už v ceně“, pohyb trhu, VIX, Fed, výsledky); volitelně placeným Claude API |
 | Zdroje | eToro svíčky 1/5/15 min | + Finnhub (zprávy, kalendář výsledků), FRED (Fed funds, inflace, nezaměstnanost, zaměstnanost, výnosy, USD, ropa, VIX), kalendář FOMC |
 | Evidence | signály, odmítnuté signály, obchody | + každá zpráva (zdroj, vydavatel, čas publikace) a každé rozhodnutí AI se zdůvodněním |
 
@@ -53,10 +53,10 @@ Služby systemd: `deploy/burza.service` (pro Studii B zkopíruj a změň `--conf
 | `ETORO_API_KEY`, `ETORO_USER_KEY` | <https://api-portal.etoro.com> → API Key Management (pro paper/demo stačí oprávnění `market-data:read`, `trade.demo:*`) | obě studie |
 | `FINNHUB_API_KEY` | <https://finnhub.io> (zdarma) | Studie B – zprávy, výsledky firem |
 | `FRED_API_KEY` | <https://fred.stlouisfed.org/docs/api/api_key.html> (zdarma) | Studie B – makrodata |
-| `ANTHROPIC_API_KEY` | <https://console.anthropic.com> | Studie B – posouzení přes Claude |
+| `ANTHROPIC_API_KEY` | <https://console.anthropic.com> – **placené zvlášť**, jen pro `ai.provider = "api"` | volitelně |
 
-Studie B volá Claude jen u technického kandidáta, max. `max_calls_per_day` (výchozí 40) za den.
-Když AI nebo zdroje nejsou dostupné, obchod se **neotevře** (fail closed) a důvod se zapíše.
+Výchozí `ai.provider = "pravidla"` je zdarma. Při `"api"` volá Claude jen u technického kandidáta,
+max. `max_calls_per_day` (výchozí 40) za den. Když posouzení selže, obchod se **neotevře** a důvod se zapíše.
 
 ## Ochranné limity (pro každou studii zvlášť)
 

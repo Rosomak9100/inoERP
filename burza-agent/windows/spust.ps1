@@ -26,7 +26,7 @@ Start-Agent "config_a.toml" "Burza Studie A"
 if ($LASTEXITCODE -eq 0) {
     Start-Agent "config_b.toml" "Burza Studie B"
 } else {
-    Write-Host "Studie B se nespouští – chybí klíče Finnhub/FRED nebo Claude (doplň přes 1_INSTALACE.bat)." -ForegroundColor Yellow
+    Write-Host "Studie B se nespouští – chybí klíč Finnhub nebo FRED (zdarma; doplň přes 1_INSTALACE.bat)." -ForegroundColor Yellow
 }
 $dash = "Set-Location '$root'; `$host.UI.RawUI.WindowTitle = 'Burza dashboard – NEZAVÍRAT'; & '$py' -m burza dashboard --studies config_a.toml config_b.toml"
 Start-Process powershell -ArgumentList "-NoProfile", "-ExecutionPolicy", "Bypass", "-NoExit", "-Command", $dash

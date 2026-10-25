@@ -42,7 +42,8 @@ class CostConfig:
 
 @dataclass
 class AiConfig:
-    base_strategy: str = "vwap_pullback"   # technický kandidát, který AI posuzuje
+    provider: str = "pravidla"             # pravidla = zdarma; api = placené Claude API
+    base_strategy: str = "vwap_pullback"   # technický kandidát, který se posuzuje
     model: str = "claude-opus-5-5"
     effort: str = "medium"
     min_confidence: float = 0.6
@@ -96,6 +97,8 @@ class Config:
             raise ConfigError("study musí být A nebo B")
         if self.study == "B" and not self.finnhub_api_key and not self.fred_api_key:
             raise ConfigError("Studie B potřebuje aspoň FINNHUB_API_KEY nebo FRED_API_KEY")
+        if self.ai.provider not in ("pravidla", "api"):
+            raise ConfigError('ai.provider musí být "pravidla" nebo "api"')
         if self.mode not in ("paper", "demo", "real"):
             raise ConfigError(f"Neznámý mode: {self.mode}")
         if self.interval not in ("1m", "5m", "15m"):

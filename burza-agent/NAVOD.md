@@ -23,10 +23,11 @@ Při instalaci **zaškrtni dole „Add python.exe to PATH“** a klikni *Install
 - **eToro (povinné):** <https://api-portal.etoro.com> → *API Key Management* → vytvořit klíč.
   Pro zkušební provoz stačí oprávnění na čtení tržních dat a demo účet. Dostaneš **API Key** a **User Key**
   (User Key se ukáže jen jednou – hned si ho zkopíruj).
-- **Pro Studii B (AI + zprávy) – můžeš doplnit i později:**
-  - Finnhub (zdarma): <https://finnhub.io> → *Get free API key*
-  - FRED (zdarma): <https://fred.stlouisfed.org/docs/api/api_key.html>
-  - Claude: <https://console.anthropic.com> → *API Keys* (placené podle použití, agent má denní strop volání)
+- **Pro Studii B (zprávy + makro) – zdarma, jen registrace e-mailem, můžeš doplnit i později:**
+  - Finnhub: <https://finnhub.io> → *Get free API key*
+  - FRED: <https://fred.stlouisfed.org/docs/api/api_key.html>
+
+Nic z toho se neplatí. Zprávy a makrodata vyhodnocují pravidla přímo ve tvém počítači.
 
 Klíče **nikdy neposílej do chatu** ani nikomu jinému.
 
@@ -66,7 +67,7 @@ Když se objeví červený text, udělej snímek obrazovky a pošli ho Claudovi 
 |---|---|
 | „Python není nainstalovaný“ | nainstaluj Python (krok 1) a zaškrtni *Add python.exe to PATH* |
 | „eToro klíče nefungují“ | smaž soubor `.env`, spusť `1_INSTALACE.bat` a klíče vlož znovu celé |
-| „Studie B se nespouští“ | chybí klíče Finnhub/FRED nebo Claude – smaž `.env` a doplň je v instalaci |
+| „Studie B se nespouští“ | chybí klíč Finnhub nebo FRED – smaž `.env` a doplň je v instalaci |
 | Dashboard se neotevře | okno *Burza dashboard* musí běžet; zkus `5_DASHBOARD.bat` |
 | Windows hlásí „Systém Windows ochránil váš počítač“ | klikni *Další informace* → *Přesto spustit* |
 | Soubor `.env` nevidím | je skrytý typ souboru; v Průzkumníku *Zobrazit → Přípony názvů souborů* |
