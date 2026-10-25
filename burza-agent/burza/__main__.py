@@ -15,7 +15,7 @@ from .agent import Agent, LiveData, utcnow
 from .backtest import load_csv, run_backtest, save_csv, walk_forward
 from .broker import EtoroBroker, PaperBroker
 from .config import Config, ConfigError, load_config
-from .etoro import EtoroClient
+from .etoro import EtoroClient, EtoroError
 from .journal import Journal
 from .risk import RiskState
 from .strategy import make_strategy
@@ -45,29 +45,48 @@ def _broker(cfg: Config, journal: Journal, client: EtoroClient):
 
 
 def cmd_check(cfg: Config, args) -> int:
+    """Srozumitelná kontrola krok za krokem – každý krok vypíše OK nebo co je špatně."""
+    ok = True
     client = _client(cfg)
+    print("1) Přihlášení k eToro …", end=" ")
     me = client.me()
-    print("Připojení OK.")
-    scopes = me.get("scopes") or me.get("profile", {}).get("scopes") or []
+    print("OK")
+    scopes = me.get("scopes") or (me.get("profile") or {}).get("scopes") or []
     if scopes:
-        print("Oprávnění klíče:", ", ".join(scopes))
-        if any("real" in s and "write" in s for s in scopes) and cfg.mode != "real":
-            print("POZOR: klíč umí obchodovat se skutečnými penězi. Pro demo/paper použij klíč jen s demo právy.")
-    broker = EtoroBroker(client, demo=cfg.mode != "real", instruments=cfg.instruments)
-    problems = broker.prepare()
+        if any(("real" in sc) and ("write" in sc) for sc in scopes) and cfg.mode != "real":
+            print("   POZOR: tento klíč umí obchodovat se SKUTEČNÝMI penězi. Bezpečnější je klíč jen s demo právy.")
+
+    print("2) Tržní data …")
     for sym, iid in cfg.instruments.items():
-        st = broker.settlement.get(iid)
-        print(f"  {sym:6} id={iid:<6} settlement={st or '-'} {problems.get(sym, '')}")
-        candles = client.live_candles(iid, cfg.interval, 5)
+        try:
+            candles = client.live_candles(iid, cfg.interval, 5)
+        except EtoroError as exc:
+            print(f"   {sym:6} CHYBA: {exc}")
+            ok = False
+            continue
         if candles:
-            age = (utcnow() - candles[-1].time).total_seconds() / 60
-            print(f"         poslední svíčka {candles[-1].time:%Y-%m-%d %H:%M} UTC (před {age:.0f} min), "
-                  f"close {candles[-1].close}, objem {candles[-1].volume:.0f}")
-    acct = broker.account()
-    print(f"Účet ({broker.mode}): equity {acct.equity:.2f} USD, volné {acct.cash:.2f} USD, "
-          f"pozic {len(acct.positions)}")
-    print("Trh je", "OTEVŘENÝ" if market.is_open(utcnow()) else "zavřený")
-    return 0
+            age = (utcnow() - candles[-1].time).total_seconds() / 3600
+            print(f"   {sym:6} OK – poslední cena {candles[-1].close} (před {age:.1f} h)")
+        else:
+            print(f"   {sym:6} žádná data")
+            ok = False
+
+    if cfg.mode in ("demo", "real"):
+        print(f"3) Účet eToro ({cfg.mode}) …")
+        broker = EtoroBroker(client, demo=cfg.mode == "demo", instruments=cfg.instruments)
+        try:
+            for sym, msg in broker.prepare().items():
+                print(f"   {sym}: {msg}")
+            acct = broker.account()
+            print(f"   OK – equity {acct.equity:.2f} USD, volné {acct.cash:.2f} USD, pozic {len(acct.positions)}")
+        except EtoroError as exc:
+            print(f"   CHYBA: {exc}")
+            ok = False
+    else:
+        print("3) Režim paper – obchody se simulují, eToro účet se nepoužívá. OK")
+    print("Trh je teď", "OTEVŘENÝ" if market.is_open(utcnow()) else "zavřený (obchoduje se Po–Pá 15:30–22:00 SEČ)")
+    print("VŠE V POŘÁDKU" if ok else "NĚCO NENÍ V POŘÁDKU – viz řádky s CHYBA")
+    return 0 if ok else 1
 
 
 def cmd_fetch(cfg: Config, args) -> int:
@@ -338,6 +357,20 @@ def main(argv: list[str] | None = None) -> int:
     except ConfigError as exc:
         print("Chyba:", exc)
         return 2
+    except EtoroError as exc:
+        print(friendly_etoro_error(exc))
+        return 3
+
+
+def friendly_etoro_error(exc: EtoroError) -> str:
+    if exc.status in (401, 403):
+        return ("CHYBA: eToro klíče nefungují (odmítnuté přihlášení). Zkontroluj v souboru .env, že "
+                "ETORO_API_KEY a ETORO_USER_KEY jsou správně a celé, bez mezer a uvozovek.")
+    if exc.status == 0:
+        return "CHYBA: nepodařilo se spojit s eToro – zkontroluj připojení k internetu."
+    if exc.status == 429:
+        return "CHYBA: eToro dočasně omezilo počet dotazů, zkus to za minutu znovu."
+    return f"CHYBA eToro: {exc}"
 
 
 if __name__ == "__main__":

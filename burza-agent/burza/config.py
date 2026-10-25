@@ -119,12 +119,13 @@ class Config:
 def _load_dotenv(path: Path) -> None:
     if not path.exists():
         return
-    for line in path.read_text(encoding="utf-8").splitlines():
+    # utf-8-sig: Poznámkový blok / PowerShell můžou na začátek souboru přidat BOM
+    for line in path.read_text(encoding="utf-8-sig").splitlines():
         line = line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, value = line.split("=", 1)
-        os.environ.setdefault(key.strip(), value.strip())
+        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
 
 
 def load_config(path: str | Path = "config_a.toml", validate: bool = True) -> Config:
@@ -132,7 +133,7 @@ def load_config(path: str | Path = "config_a.toml", validate: bool = True) -> Co
     if not path.exists():
         raise ConfigError(f"Konfigurace {path} neexistuje – zkopíruj config_a.example.toml / config_b.example.toml")
     _load_dotenv(path.parent / ".env")
-    raw = tomllib.loads(path.read_text(encoding="utf-8"))
+    raw = tomllib.loads(path.read_text(encoding="utf-8-sig"))
     cfg = Config(
         risk=RiskConfig(**raw.pop("risk", {})),
         session=SessionConfig(**raw.pop("session", {})),

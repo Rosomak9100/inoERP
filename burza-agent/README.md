@@ -25,33 +25,13 @@ otevře nebo zavře sám, bez potvrzování. Výsledky ukazuje **dashboard** se 
 
 ## Rychlý start – Windows
 
-1. Nainstaluj **Python 3.12** z <https://www.python.org/downloads/> a v instalátoru zaškrtni **„Add python.exe to PATH“**.
-2. Stáhni kód: v PowerShellu
+**Podrobný návod pro začátečníky: [NAVOD.md](NAVOD.md).** Ve zkratce – dvojklik na soubory ve složce `burza-agent`:
 
-   ```powershell
-   cd $HOME
-   git clone -b claude/amazing-tesla-45tb88 https://github.com/Rosomak9100/inoERP.git
-   cd inoERP\burza-agent
-   ```
+1. `1_INSTALACE.bat` – nainstaluje vše, zeptá se na klíče, vyzkouší spojení s eToro
+2. `2_SPUSTIT.bat` – spustí obě studie a dashboard (<http://127.0.0.1:8080>)
+3. `3_ZASTAVIT.bat` – nouzové zastavení; `4_AKTUALIZOVAT.bat` – nová verze
 
-   (Bez gitu: stáhni ZIP větve `claude/amazing-tesla-45tb88` z GitHubu, rozbal a otevři v PowerShellu složku `burza-agent`.)
-3. Instalace (vytvoří prostředí, configy a otevře `.env` v Poznámkovém bloku – vyplň klíče, ulož, zavři):
-
-   ```powershell
-   powershell -ExecutionPolicy Bypass -File windows\instalace.ps1
-   ```
-
-4. Spuštění obou studií + dashboardu (otevře se prohlížeč na <http://127.0.0.1:8080>):
-
-   ```powershell
-   powershell -ExecutionPolicy Bypass -File windows\spust.ps1
-   ```
-
-Počítač musí během obchodních hodin USA (**15:30–22:00 SEČ**) běžet a nesmí usnout (skript vypne uspávání
-na síťovém napájení). Pro provoz bez zapnutého PC použij server (Linux níže).
-
-Ruční příkazy ve Windows: místo `python` piš `.\.venv\Scripts\python`, např.
-`.\.venv\Scripts\python -m burza --config config_b.toml status`.
+Počítač musí během obchodních hodin USA (**15:30–22:00 SEČ**) běžet a nesmí usnout.
 
 ## Rychlý start – Linux / server
 
