@@ -19,6 +19,10 @@ from .config import Config
 PAGE = Path(__file__).with_name("dashboard.html")
 CHART_JS = Path(__file__).with_name("chart.js")
 MAX_POINTS = 1500
+NO_HISTORY = ("<!doctype html><meta charset='utf-8'><title>Minulost</title>"
+              "<style>:root{color-scheme:light dark}body{font:15px system-ui,sans-serif;padding:24px;"
+              "background:transparent}</style><p>Srovnání s minulostí ještě není spočítané. "
+              "Spusť <b>8_HISTORIE.bat</b> ve složce burza-agent a pak tuto stránku obnov.</p>").encode()
 
 
 def _connect(path: Path) -> sqlite3.Connection | None:
@@ -218,6 +222,10 @@ def serve(cfgs: list[Config], host: str = "127.0.0.1", port: int = 8080) -> None
                 self._send(200, page, "text/html; charset=utf-8")
             elif self.path == "/chart.js":
                 self._send(200, CHART_JS.read_bytes(), "text/javascript; charset=utf-8")
+            elif self.path == "/historie":
+                hist = Path(cfgs[0].data_dir) / "historie.html"
+                body = hist.read_bytes() if hist.exists() else NO_HISTORY
+                self._send(200, body, "text/html; charset=utf-8")
             elif self.path == "/api/data":
                 body = json.dumps(build_payload(cfgs), ensure_ascii=False, default=str).encode()
                 self._send(200, body, "application/json; charset=utf-8")

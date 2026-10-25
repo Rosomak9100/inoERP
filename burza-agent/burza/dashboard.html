@@ -210,7 +210,7 @@ function compareView() {
 }
 
 function render() {
-  const names = [...data.studies.map(s => s.name), "Porovnání"];
+  const names = [...data.studies.map(s => s.name), "Porovnání", "Minulost"];
   if (+tab >= names.length) tab = "0";
   $("#tabs").innerHTML = names.map((n, i) => `<button role="tab" aria-selected="${String(i) === tab}" data-i="${i}">${esc(n)}</button>`).join("");
   $("#tabs").querySelectorAll("button").forEach(b => b.onclick = () => {
@@ -218,7 +218,11 @@ function render() {
   });
   $("#meta").textContent = `Aktualizováno ${dt(data.generated)} · trh ${data.market_open ? "otevřený" : "zavřený"} · obnova každých 60 s`;
   const i = +tab;
-  if (i < data.studies.length) {
+  if (i === data.studies.length + 1) {
+    // report z 8_HISTORIE.bat – iframe se nepřekresluje při obnově dat, ať se graf nenačítá pořád znovu
+    if (!$("#hist")) $("#main").innerHTML = `<iframe id="hist" src="/historie" title="Jak by si strategie vedla v minulosti"
+      style="width:100%;min-height:80vh;border:0;background:transparent" onload="this.style.height=(this.contentDocument.documentElement.scrollHeight+20)+'px'"></iframe>`;
+  } else if (i < data.studies.length) {
     const s = data.studies[i];
     $("#main").innerHTML = studyView(s, i);
     if (s.series) lineChart($("#eq" + i), [{name: s.name, color: SERIES[i % 2],
@@ -232,7 +236,8 @@ function render() {
       if (src) series.push({name: label, color,
         points: src.series.filter(p => p[key] != null).map(p => ({t: Date.parse(p.t), v: p[key]}))});
     }
-    $("#lg").innerHTML = series.map(s => `<span style="--c:${s.color}">${esc(s.name)}</span>`).join("");
+    $("#lg").innerHTML = series.map(s => `<span style="--c:${s.color}">${esc(s.name)}</span>`).join("")
+      + (series.length <= data.studies.length ? `<div style="flex-basis:100%;color:var(--muted);font-size:12px">S&amp;P 500 a Nasdaq 100 se doplní po prvním rozhodnutí v obchodní den. Srovnání za minulé roky je na záložce Minulost.</div>` : "");
     lineChart($("#cmp"), series, "%");
   }
 }
