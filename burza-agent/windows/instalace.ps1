@@ -82,4 +82,26 @@ if ($LASTEXITCODE -ne 0) {
 if (-not ($values["FINNHUB_API_KEY"] -or $values["FRED_API_KEY"])) {
     Write-Host "Studie B se nespustí, dokud nedoplníš klíč Finnhub nebo FRED (oba zdarma). Smaž .env a spusť instalaci znovu." -ForegroundColor Yellow
 }
-Konec "HOTOVO. Agenta spustíš dvojklikem na 2_SPUSTIT.bat" $true
+# Zástupci na Ploše – pak už není potřeba PowerShell ani hledat složku
+try {
+    $desktop = [Environment]::GetFolderPath("Desktop")
+    $shell = New-Object -ComObject WScript.Shell
+    $links = @(
+        @("Burza - SPUSTIT", "2_SPUSTIT.bat"),
+        @("Burza - ZASTAVIT", "3_ZASTAVIT.bat"),
+        @("Burza - PREHLED", "5_DASHBOARD.bat"),
+        @("Burza - AKTUALIZOVAT", "4_AKTUALIZOVAT.bat"),
+        @("Burza - INSTALACE a klice", "1_INSTALACE.bat")
+    )
+    foreach ($l in $links) {
+        $lnk = $shell.CreateShortcut((Join-Path $desktop ($l[0] + ".lnk")))
+        $lnk.TargetPath = Join-Path $root $l[1]
+        $lnk.WorkingDirectory = $root
+        $lnk.Save()
+    }
+    Write-Host "Na Ploše jsou zástupci 'Burza - SPUSTIT', 'Burza - ZASTAVIT', 'Burza - PREHLED' a další." -ForegroundColor Green
+} catch {
+    Write-Host "Zástupce na Ploše se nepodařilo vytvořit – spouštěj soubory ve složce $root" -ForegroundColor Yellow
+}
+
+Konec "HOTOVO. Agenty spustíš ikonou 'Burza - SPUSTIT' na Ploše." $true

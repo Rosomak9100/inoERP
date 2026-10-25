@@ -1,7 +1,8 @@
 # Návod pro Windows – krok za krokem
 
-Nic nemusíš psát ani programovat. Všechno se spouští **dvojklikem** na soubory ve složce
-`burza-agent` (otevři ji v Průzkumníku souborů, např. `C:\Users\<tvé jméno>\inoERP\burza-agent`).
+Nic nemusíš psát ani programovat. Po instalaci máš na **Ploše ikony** „Burza - SPUSTIT“,
+„Burza - ZASTAVIT“, „Burza - PREHLED“, „Burza - AKTUALIZOVAT“ a „Burza - INSTALACE a klice“.
+Stejné soubory jsou i ve složce `burza-agent` (např. `C:\Users\<tvé jméno>\inoERP\burza-agent`).
 
 | Soubor | Co udělá |
 |---|---|
