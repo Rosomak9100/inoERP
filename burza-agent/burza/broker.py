@@ -21,6 +21,16 @@ class ClosedFill:
     pnl: float
     reason: str
     time: datetime
+    costs: float = 0.0
+
+
+@dataclass
+class ExactClose:
+    position_id: str
+    close_price: float
+    pnl: float
+    close_time: str
+    fees: float | None
 
 
 class Broker:
@@ -39,6 +49,9 @@ class Broker:
     def max_units(self, instrument_id: int) -> float | None:
         return None
 
+    def closed_history(self, min_date: str) -> dict[str, ExactClose]:
+        return {}
+
 
 # ---------------------------------------------------------------------------------------
 class PaperBroker(Broker):
@@ -52,11 +65,13 @@ class PaperBroker(Broker):
         self.costs = costs
         self.positions: dict[str, Position] = {}
         self.last_price: dict[str, float] = {}
+        self.entry_costs: dict[str, float] = {}
         self.next_id = 1
 
     # persistence mezi restarty
     def to_dict(self) -> dict:
         return {"cash": self.cash, "next_id": self.next_id, "last_price": self.last_price,
+                "entry_costs": self.entry_costs,
                 "positions": [{**asdict(p), "open_time": p.open_time.isoformat() if p.open_time else None}
                               for p in self.positions.values()]}
 
@@ -65,6 +80,7 @@ class PaperBroker(Broker):
         b = cls(d["cash"], costs)
         b.next_id = d["next_id"]
         b.last_price = d.get("last_price", {})
+        b.entry_costs = d.get("entry_costs", {})
         for p in d["positions"]:
             p["open_time"] = datetime.fromisoformat(p["open_time"]) if p["open_time"] else None
             b.positions[p["position_id"]] = Position(**p)
@@ -95,6 +111,8 @@ class PaperBroker(Broker):
         self.next_id += 1
         self.positions[pid] = Position(pid, symbol, instrument_id, units, fill, stop, target,
                                        when or datetime.now(timezone.utc), 0.0, spend)
+        # náklady vstupu: commission + rozdíl mezi fill a midem
+        self.entry_costs[pid] = self.costs.commission_usd + units * (fill - price_hint)
         self.last_price.setdefault(symbol, price_hint)
         return OrderResult(True, client_ref, "filled", [pid], fill, units)
 
@@ -103,7 +121,8 @@ class PaperBroker(Broker):
         proceeds = p.units * exit_px - self.costs.commission_usd
         self.cash += proceeds
         del self.positions[p.position_id]
-        return ClosedFill(p, exit_px, proceeds - p.invested, reason, when)
+        costs = self.entry_costs.pop(p.position_id, 0.0) + self.costs.commission_usd + p.units * (price - exit_px)
+        return ClosedFill(p, exit_px, proceeds - p.invested, reason, when, round(costs, 4))
 
     def close(self, position: Position, *, reason: str, price_hint: float | None,
               when: datetime | None = None) -> OrderResult:
@@ -114,7 +133,7 @@ class PaperBroker(Broker):
         fill = self._close_at(p, px, reason, when or datetime.now(timezone.utc))
         self.last_closed = fill
         return OrderResult(True, "", "filled", [p.position_id], fill.price, p.units,
-                           raw={"pnl": fill.pnl})
+                           raw={"pnl": fill.pnl, "costs": fill.costs})
 
     def on_bar(self, symbol: str, c: Candle) -> list[ClosedFill]:
         """Zpracuje novou svíčku: aktualizuje cenu a vyhodnotí stop/target."""
@@ -253,6 +272,19 @@ class EtoroBroker(Broker):
                 return OrderResult(False, client_ref, "rejected", error="objednávka na eToro neexistuje")
             raise
         return self.result_from_lookup(client_ref, info)
+
+    def closed_history(self, min_date: str) -> dict[str, ExactClose]:
+        out = {}
+        for row in self.client.trade_history(demo=self.demo, min_date=min_date):
+            pid = ci_get(row, "positionId", "positionID")
+            if pid is None or ci_get(row, "netProfit") is None:
+                continue
+            fees = ci_get(row, "fees")
+            out[str(pid)] = ExactClose(str(pid), float(ci_get(row, "closeRate") or 0),
+                                       float(ci_get(row, "netProfit")),
+                                       str(ci_get(row, "closeTimestamp") or ""),
+                                       float(fees) if fees is not None else None)
+        return out
 
     def close(self, position: Position, *, reason: str, price_hint: float | None) -> OrderResult:
         try:

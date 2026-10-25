@@ -1,0 +1,64 @@
+# Burza agent – konfigurace. Zkopíruj do config.toml a uprav.
+# Klíče sem NEPATŘÍ – čtou se z proměnných prostředí (viz .env.example).
+
+study = "B"                  # A = jen technická analýza, B = AI + zprávy/makro
+study_name = "Studie B – AI + zprávy"
+
+# paper = vlastní simulace (bez eToro příkazů) – doporučeno pro souběžné porovnání studií
+# demo  = virtuální účet eToro (doporučeno pro start)
+# real  = skutečné peníze (Agent Portfolio) – vyžaduje i BURZA_I_ACCEPT_REAL_MONEY_RISK=ano
+mode = "paper"
+real_trading_confirmed = false
+
+strategy = "vwap_pullback"   # vwap_pullback | orb
+interval = "5m"              # 1m | 5m | 15m
+poll_seconds = 30
+
+# Společný start obou studií: 200 000 Kč přepočtené pevným kurzem ke dni startu.
+# Kurz a datum doplní příkaz:  python -m burza init-start --configs config_a.toml config_b.toml
+initial_capital_czk = 200000
+usdczk_start_rate = 0
+start_date = ""
+# initial_capital_usd = 0   # alternativa: zadat kapitál přímo v USD (0 = equity účtu při 1. spuštění)
+
+benchmark_symbol = "SPY"
+benchmark_instrument_id = 3000
+
+data_dir = "data_b"
+kill_file = "STOP"           # společný kill switch zastaví obě studie
+
+[ai]
+base_strategy = "vwap_pullback"   # technický kandidát, který AI posuzuje
+model = "claude-opus-5-5"
+effort = "medium"
+min_confidence = 0.6
+max_calls_per_day = 40            # strop nákladů na Claude API
+news_lookback_hours = 24
+context_cache_minutes = 15
+
+[risk]
+risk_per_trade_pct = 1.0      # max. riziko jednoho obchodu z počátečního kapitálu
+max_daily_loss_pct = 3.0      # při dosažení: žádné nové obchody do dalšího obchodního dne
+max_drawdown_pct = 15.0       # při dosažení: vše zavřít a zastavit do ručního schválení
+max_open_positions = 3
+max_position_pct = 25.0       # max. objem jedné pozice v % equity
+max_trades_per_day = 10
+flatten_on_daily_limit = true
+
+[session]
+no_entry_first_minutes = 15   # prvních N minut po otevření nevstupovat (opening range)
+no_entry_last_minutes = 30    # posledních N minut nevstupovat
+flatten_minutes_before_close = 10
+stale_data_seconds = 900      # data starší než tohle = zastaralá, neobchodovat
+
+[costs]                       # pro paper režim a backtest
+spread_bps = 2.0              # polovina se platí při vstupu, polovina při výstupu
+commission_usd = 0.0          # za jednu stranu obchodu
+slippage_bps = 1.0
+
+# Instrumenty: symbol = eToro instrumentId (ověřeno 24. 10. 2026)
+[instruments]
+SPY = 3000
+QQQ = 3006
+AAPL = 1001
+NVDA = 1137

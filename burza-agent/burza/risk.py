@@ -94,7 +94,7 @@ class RiskEngine:
         if rpu <= 0 or sig.stop <= 0:
             return Decision(False, "neplatný stop-loss")
 
-        risk_budget = st.initial_capital * c.risk_per_trade_pct / 100
+        risk_budget = st.initial_capital * c.risk_per_trade_pct / 100 * min(max(sig.size_factor, 0.0), 1.0)
         units = risk_budget / rpu
         max_notional = min(account.equity * c.max_position_pct / 100, account.cash * 0.98)
         if units * sig.entry > max_notional:

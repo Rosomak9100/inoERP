@@ -25,6 +25,7 @@ class Signal:
     target: float
     reason: str
     time: datetime | None = None
+    size_factor: float = 1.0  # Studie B může riziko snížit (nikdy zvýšit nad limit)
 
     @property
     def risk_per_unit(self) -> float:

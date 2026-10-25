@@ -1,22 +1,31 @@
 # Burza agent – konfigurace. Zkopíruj do config.toml a uprav.
 # Klíče sem NEPATŘÍ – čtou se z proměnných prostředí (viz .env.example).
 
-# paper = vlastní simulace (bez eToro příkazů)
+study = "A"                  # A = jen technická analýza, B = AI + zprávy/makro
+study_name = "Studie A – technická"
+
+# paper = vlastní simulace (bez eToro příkazů) – doporučeno pro souběžné porovnání studií
 # demo  = virtuální účet eToro (doporučeno pro start)
 # real  = skutečné peníze (Agent Portfolio) – vyžaduje i BURZA_I_ACCEPT_REAL_MONEY_RISK=ano
-mode = "demo"
+mode = "paper"
 real_trading_confirmed = false
 
 strategy = "vwap_pullback"   # vwap_pullback | orb
 interval = "5m"              # 1m | 5m | 15m
 poll_seconds = 30
 
-# Výchozí kapitál, ze kterého se počítají limity (200 000 Kč přepočtené na USD při startu).
-# 0 = vezme se equity účtu při prvním spuštění a uloží se do deníku.
-initial_capital_usd = 0
+# Společný start obou studií: 200 000 Kč přepočtené pevným kurzem ke dni startu.
+# Kurz a datum doplní příkaz:  python -m burza init-start --configs config_a.toml config_b.toml
+initial_capital_czk = 200000
+usdczk_start_rate = 0
+start_date = ""
+# initial_capital_usd = 0   # alternativa: zadat kapitál přímo v USD (0 = equity účtu při 1. spuštění)
 
-data_dir = "data"
-kill_file = "STOP"
+benchmark_symbol = "SPY"
+benchmark_instrument_id = 3000
+
+data_dir = "data_a"
+kill_file = "STOP"           # společný kill switch zastaví obě studie
 
 [risk]
 risk_per_trade_pct = 1.0      # max. riziko jednoho obchodu z počátečního kapitálu

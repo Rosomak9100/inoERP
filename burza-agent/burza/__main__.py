@@ -19,6 +19,7 @@ from .etoro import EtoroClient
 from .journal import Journal
 from .risk import RiskState
 from .strategy import make_strategy
+from .study_b import make_study_strategy
 
 
 def _client(cfg: Config) -> EtoroClient:
@@ -33,7 +34,7 @@ def _broker(cfg: Config, journal: Journal, client: EtoroClient):
         if saved:
             return PaperBroker.from_dict(saved, cfg.costs)
         if cfg.initial_capital_usd <= 0:
-            raise ConfigError("Pro paper režim nastav initial_capital_usd > 0")
+            raise ConfigError("Chybí počáteční kapitál: spusť python -m burza init-start --configs config_a.toml config_b.toml (nebo nastav initial_capital_usd)")
         return PaperBroker(cfg.initial_capital_usd, cfg.costs)
     broker = EtoroBroker(client, demo=cfg.mode == "demo", instruments=cfg.instruments)
     problems = broker.prepare()
@@ -89,7 +90,11 @@ def cmd_backtest(cfg: Config, args) -> int:
             print(f"Chybí {path} – nejdřív spusť: python -m burza fetch --days {args.days}")
             return 1
         data[sym] = load_csv(path)
-    strategy = make_strategy(args.strategy or cfg.strategy)
+    name = args.strategy or (cfg.ai.base_strategy if cfg.study == "B" else cfg.strategy)
+    if cfg.study == "B":
+        print("Pozn.: Studie B se nedá poctivě backtestovat bez historického archivu zpráv (look-ahead),"
+              " testuje se jen její technický základ:", name)
+    strategy = make_strategy(name)
     initial = cfg.initial_capital_usd or 10_000.0
     if args.walk_forward:
         out = walk_forward(cfg, strategy, data, initial)
@@ -110,7 +115,7 @@ def _agent(cfg: Config) -> tuple[Agent, Journal]:
     client = _client(cfg)
     broker = _broker(cfg, journal, client)
     data = LiveData(client, cfg.interval, cfg.interval_minutes)
-    return Agent(cfg, journal, broker, data, make_strategy(cfg.strategy)), journal
+    return Agent(cfg, journal, broker, data, make_study_strategy(cfg, client)), journal
 
 
 def cmd_run(cfg: Config, args) -> int:
@@ -252,9 +257,41 @@ def cmd_test_order(cfg: Config, args) -> int:
     return 0
 
 
+USDCZK_INSTRUMENT_ID = 82
+
+
+def cmd_init_start(cfg: Config, args) -> int:
+    """Zapíše do všech configů stejný kurz USD/CZK a datum startu (jen pokud ještě nejsou)."""
+    import re
+    client = _client(cfg)
+    daily = client.live_candles(USDCZK_INSTRUMENT_ID, "1d", 2)
+    if not daily:
+        print("Kurz USD/CZK se nepodařilo načíst.")
+        return 1
+    rate = round(daily[-1].close, 4)
+    today = market.trading_date(utcnow()).isoformat()
+    for path in args.configs:
+        text = Path(path).read_text(encoding="utf-8")
+        if re.search(r"^usdczk_start_rate\s*=\s*[1-9]", text, re.M) and not args.force:
+            print(f"{path}: kurz už je nastavený, nic neměním (--force přepíše)")
+            continue
+        text = re.sub(r"^usdczk_start_rate\s*=.*$", f"usdczk_start_rate = {rate}", text, flags=re.M)
+        text = re.sub(r"^start_date\s*=.*$", f'start_date = "{today}"', text, flags=re.M)
+        Path(path).write_text(text, encoding="utf-8")
+        print(f"{path}: kurz USD/CZK {rate}, start {today}")
+    return 0
+
+
+def cmd_dashboard(cfg: Config, args) -> int:
+    from .dashboard import serve
+    cfgs = [load_config(path, validate=False) for path in args.studies] if args.studies else [cfg]
+    serve(cfgs, args.host, args.port)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="burza", description="AI obchodní agent pro eToro")
-    p.add_argument("--config", default="config.toml")
+    p.add_argument("--config", default="config_a.toml")
     p.add_argument("-v", "--verbose", action="store_true")
     sub = p.add_subparsers(dest="cmd", required=True)
     sub.add_parser("check", help="ověří klíče, oprávnění, instrumenty a data")
@@ -276,18 +313,26 @@ def main(argv: list[str] | None = None) -> int:
     rp.add_argument("--days", type=int, default=1)
     t = sub.add_parser("test-order", help="testovací demo objednávka (otevřít + zavřít)")
     t.add_argument("--symbol", default="SPY")
+    i = sub.add_parser("init-start", help="společný kurz USD/CZK a datum startu do configů")
+    i.add_argument("--configs", nargs="+", required=True)
+    i.add_argument("--force", action="store_true")
+    d = sub.add_parser("dashboard", help="webový dashboard obou studií")
+    d.add_argument("--studies", nargs="+", help="configy studií, např. config_a.toml config_b.toml")
+    d.add_argument("--host", default="127.0.0.1")
+    d.add_argument("--port", type=int, default=8080)
     args = p.parse_args(argv)
 
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     try:
-        cfg = load_config(args.config)
+        cfg = load_config(args.config, validate=args.cmd not in ("dashboard", "init-start"))
     except ConfigError as exc:
         print("Chyba konfigurace:", exc)
         return 2
     handlers = {"check": cmd_check, "fetch": cmd_fetch, "backtest": cmd_backtest, "run": cmd_run,
                 "kill": cmd_kill, "resume": cmd_resume, "reset-halt": cmd_reset_halt,
-                "status": cmd_status, "report": cmd_report, "test-order": cmd_test_order}
+                "status": cmd_status, "report": cmd_report, "test-order": cmd_test_order,
+                "dashboard": cmd_dashboard, "init-start": cmd_init_start}
     try:
         return handlers[args.cmd](cfg, args)
     except ConfigError as exc:

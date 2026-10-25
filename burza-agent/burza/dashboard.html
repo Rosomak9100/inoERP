@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Burza dashboard</title>
+<style>
+:root {
+  color-scheme: light;
+  --page: #f9f9f7; --surface: #fcfcfb; --ink: #0b0b0b; --ink-2: #52514e; --muted: #898781;
+  --grid: #e1e0d9; --axis: #c3c2b7; --border: rgba(11,11,11,0.10);
+  --series-1: #2a78d6; --series-2: #eb6834; --series-3: #1baf7a;
+  --good: #006300; --critical: #d03b3b; --warning: #fab219;
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface: #1a1a19; --ink: #f0efec; --ink-2: #c3c2b7; --muted: #898781;
+    --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10);
+    --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --good: #0ca30c;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0d0d0d; --surface: #1a1a19; --ink: #f0efec; --ink-2: #c3c2b7; --muted: #898781;
+  --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10);
+  --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --good: #0ca30c;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page); color: var(--ink);
+  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between;
+  padding: 16px; max-width: 1280px; margin: 0 auto; }
+h1 { font-size: 20px; margin: 0; }
+.meta { color: var(--ink-2); font-size: 13px; }
+nav { display: flex; gap: 4px; padding: 0 16px; max-width: 1280px; margin: 0 auto; border-bottom: 1px solid var(--border); }
+nav button { background: none; border: 0; border-bottom: 2px solid transparent; color: var(--ink-2);
+  padding: 10px 14px; font: inherit; cursor: pointer; }
+nav button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--ink); font-weight: 600; }
+main { max-width: 1280px; margin: 0 auto; padding: 16px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+.card h2 { font-size: 15px; margin: 0 0 12px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.tile { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px; }
+.tile .label { color: var(--ink-2); font-size: 12px; }
+.tile .value { font-size: 20px; font-weight: 600; margin-top: 2px; white-space: nowrap; }
+.tile .sub { color: var(--muted); font-size: 12px; }
+.status { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; padding: 2px 10px;
+  border-radius: 999px; border: 1px solid var(--border); }
+.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.warn { border-left: 3px solid var(--warning); padding: 8px 12px; background: var(--surface); margin-bottom: 12px; }
+.table-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+th { color: var(--ink-2); font-weight: 600; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+td.wrap { white-space: normal; min-width: 240px; }
+.pos::before { content: "▲ "; color: var(--good); font-size: 10px; }
+.neg::before { content: "▼ "; color: var(--critical); font-size: 10px; }
+.chart { position: relative; }
+.chart svg { width: 100%; height: 280px; display: block; }
+.chart .tip { position: absolute; pointer-events: none; background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; padding: 8px 10px; font-size: 12px; box-shadow: 0 4px 12px rgba(0,0,0,.12); display: none; white-space: nowrap; }
+.legend { display: flex; flex-wrap: wrap; gap: 16px; font-size: 13px; color: var(--ink-2); margin-bottom: 8px; }
+.legend span::before { content: ""; display: inline-block; width: 14px; height: 2px; margin-right: 6px; vertical-align: middle; background: var(--c); }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 16px; }
+.grid2 > * { min-width: 0; }
+@media (max-width: 520px) { .grid2 { grid-template-columns: 1fr; } }
+dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0; font-size: 13px; }
+dt { color: var(--ink-2); }
+dd { margin: 0; }
+.empty { color: var(--muted); padding: 8px 0; }
+button.theme { background: var(--surface); border: 1px solid var(--border); color: var(--ink); border-radius: 8px; padding: 6px 10px; cursor: pointer; font: inherit; }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Burza – AI obchodní studie</h1>
+    <div class="meta" id="meta">Načítám…</div>
+  </div>
+  <button class="theme" id="theme" type="button">Světlý / tmavý režim</button>
+</header>
+<nav id="tabs" role="tablist"></nav>
+<main id="main"></main>
+
+<script>
+const $ = (s, el = document) => el.querySelector(s);
+const fmt = (v, d = 2) => v == null || Number.isNaN(v) ? "–" : Number(v).toLocaleString("cs-CZ", {minimumFractionDigits: d, maximumFractionDigits: d});
+const usd = v => v == null ? "–" : fmt(v) + " USD";
+const pct = v => v == null ? "–" : (v > 0 ? "+" : "") + fmt(v) + " %";
+const signCls = v => v > 0 ? "pos" : v < 0 ? "neg" : "";
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+const dt = s => s ? new Date(s).toLocaleString("cs-CZ", {dateStyle: "short", timeStyle: "short"}) : "–";
+const SERIES = ["var(--series-1)", "var(--series-2)", "var(--series-3)"];
+
+let data = null;
+let tab = (() => { try { return localStorage.getItem("burza-tab") || "0"; } catch { return "0"; } })();
+
+$("#theme").onclick = () => {
+  const root = document.documentElement;
+  const dark = root.dataset.theme ? root.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+  root.dataset.theme = dark ? "light" : "dark";
+};
+
+function tile(label, value, sub = "", cls = "") {
+  return `<div class="tile"><div class="label">${label}</div><div class="value ${cls}">${value}</div><div class="sub">${sub}</div></div>`;
+}
+
+function table(cols, rows, empty = "Zatím nic") {
+  if (!rows || !rows.length) return `<div class="empty">${empty}</div>`;
+  return `<div class="table-wrap"><table><thead><tr>${cols.map(c => `<th class="${c.num ? "num" : ""}">${c.h}</th>`).join("")}</tr></thead>
+    <tbody>${rows.map(r => `<tr>${cols.map(c => `<td class="${c.num ? "num" : ""} ${c.wrap ? "wrap" : ""} ${c.cls ? c.cls(r) : ""}">${c.f(r)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+}
+
+// Čárový graf v SVG s křížem a tooltipem. series: [{name, color, points:[{t: Date, v}]}]
+function lineChart(el, series, unit) {
+  const W = el.clientWidth || 800, H = 280, m = {l: 64, r: 96, t: 12, b: 28};
+  const all = series.flatMap(s => s.points);
+  if (!all.length) { el.innerHTML = `<div class="empty">Zatím žádná data</div>`; return; }
+  const t0 = Math.min(...all.map(p => p.t)), t1 = Math.max(...all.map(p => p.t)) || t0 + 1;
+  let v0 = Math.min(...all.map(p => p.v)), v1 = Math.max(...all.map(p => p.v));
+  if (unit === "%") { v0 = Math.min(v0, 0); v1 = Math.max(v1, 0); }
+  if (v0 === v1) { v0 -= 1; v1 += 1; }
+  const pad = (v1 - v0) * 0.08; v0 -= pad; v1 += pad;
+  const x = t => m.l + (t - t0) / ((t1 - t0) || 1) * (W - m.l - m.r);
+  const y = v => m.t + (1 - (v - v0) / (v1 - v0)) * (H - m.t - m.b);
+  const ticks = 5, yt = [...Array(ticks)].map((_, i) => v0 + (v1 - v0) * i / (ticks - 1));
+  const fy = v => unit === "%" ? fmt(v, 1) + " %" : fmt(v, 0);
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(series.map(s => s.name).join(", "))}">`;
+  yt.forEach(v => svg += `<line x1="${m.l}" x2="${W - m.r}" y1="${y(v)}" y2="${y(v)}" stroke="var(--grid)" stroke-width="1"/>
+    <text x="${m.l - 8}" y="${y(v) + 4}" text-anchor="end" font-size="11" fill="var(--muted)">${fy(v)}</text>`);
+  if (unit === "%") svg += `<line x1="${m.l}" x2="${W - m.r}" y1="${y(0)}" y2="${y(0)}" stroke="var(--axis)" stroke-width="1"/>`;
+  [t0, (t0 + t1) / 2, t1].forEach((t, i) => svg += `<text x="${x(t)}" y="${H - 8}" font-size="11" fill="var(--muted)" text-anchor="${["start", "middle", "end"][i]}">${new Date(t).toLocaleDateString("cs-CZ")}</text>`);
+  series.forEach(s => {
+    if (!s.points.length) return;
+    const d = s.points.map((p, i) => `${i ? "L" : "M"}${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}`).join("");
+    svg += `<path d="${d}" fill="none" stroke="${s.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+    const last = s.points[s.points.length - 1];
+    if (series.length > 1) svg += `<text x="${x(last.t) + 6}" y="${y(last.v) + 4}" font-size="11" fill="var(--ink-2)">${esc(s.name)}</text>`;
+  });
+  svg += `<line id="xh" y1="${m.t}" y2="${H - m.b}" stroke="var(--axis)" stroke-width="1" visibility="hidden"/>`;
+  series.forEach((s, i) => svg += `<circle id="pt${i}" r="4" fill="${s.color}" stroke="var(--surface)" stroke-width="2" visibility="hidden"/>`);
+  svg += `<rect x="${m.l}" y="${m.t}" width="${W - m.l - m.r}" height="${H - m.t - m.b}" fill="transparent" id="hit"/></svg><div class="tip"></div>`;
+  el.innerHTML = svg;
+  const tip = $(".tip", el), hit = $("#hit", el), xh = $("#xh", el);
+  hit.addEventListener("pointermove", ev => {
+    const r = el.querySelector("svg").getBoundingClientRect();
+    const px = (ev.clientX - r.left) * W / r.width;
+    const t = t0 + (px - m.l) / (W - m.l - m.r) * (t1 - t0);
+    let html = `<div>${new Date(t).toLocaleString("cs-CZ", {dateStyle: "short", timeStyle: "short"})}</div>`;
+    series.forEach((s, i) => {
+      const pt = s.points.reduce((a, b) => Math.abs(b.t - t) < Math.abs(a.t - t) ? b : a, s.points[0]);
+      const c = $("#pt" + i, el);
+      if (!pt) return;
+      c.setAttribute("cx", x(pt.t)); c.setAttribute("cy", y(pt.v)); c.setAttribute("visibility", "visible");
+      html += `<div><span style="display:inline-block;width:10px;height:2px;background:${s.color};vertical-align:middle;margin-right:6px"></span>${esc(s.name)}: <b>${unit === "%" ? pct(pt.v) : usd(pt.v)}</b></div>`;
+    });
+    xh.setAttribute("x1", px); xh.setAttribute("x2", px); xh.setAttribute("visibility", "visible");
+    tip.innerHTML = html; tip.style.display = "block";
+    const left = (ev.clientX - r.left) + 14;
+    tip.style.left = Math.min(left, r.width - tip.offsetWidth - 4) + "px"; tip.style.top = "12px";
+  });
+  hit.addEventListener("pointerleave", () => {
+    tip.style.display = "none"; xh.setAttribute("visibility", "hidden");
+    series.forEach((_, i) => $("#pt" + i, el).setAttribute("visibility", "hidden"));
+  });
+}
+
+function statusBadge(s) {
+  if (s.error) return `<span class="status"><span class="dot" style="background:var(--muted)"></span>bez dat</span>`;
+  if (s.kill_switch) return `<span class="status"><span class="dot" style="background:var(--critical)"></span>⛔ kill switch</span>`;
+  if (s.risk && s.risk.halted) return `<span class="status"><span class="dot" style="background:var(--critical)"></span>⛔ zastaveno (limit 15 %)</span>`;
+  if (s.risk && s.risk.daily_blocked) return `<span class="status"><span class="dot" style="background:var(--warning)"></span>⚠ denní limit</span>`;
+  return s.running ? `<span class="status"><span class="dot" style="background:var(--good)"></span>✓ běží (${s.heartbeat_age_s} s)</span>`
+                   : `<span class="status"><span class="dot" style="background:var(--warning)"></span>⚠ agent neběží</span>`;
+}
+
+function studyView(s, idx) {
+  if (s.error) return `<div class="card"><h2>${esc(s.name)}</h2><p>${esc(s.error)}</p>${methodologyCard(s)}</div>`;
+  const m = s.metrics;
+  let html = `<div class="card" style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;align-items:center">
+    <div><b>${esc(s.name)}</b> · ${esc(s.strategy)} · režim ${esc(s.mode)}</div>${statusBadge(s)}</div>`;
+  if (m.estimated_pnl_trades) html += `<div class="warn">${m.estimated_pnl_trades} obchodů má zatím odhadnuté P/L – přesné číslo se doplní z historie eToro.</div>`;
+  html += `<div class="tiles">
+    ${tile("Počáteční kapitál", usd(m.initial))}
+    ${tile("Aktuální kapitál", usd(m.current), pct(m.return_pct), "")}
+    ${tile("Realizovaný P/L", usd(m.realized), "", signCls(m.realized))}
+    ${tile("Nerealizovaný P/L", usd(m.unrealized), "", signCls(m.unrealized))}
+    ${tile("Max. drawdown", pct(-m.max_dd_pct))}
+    ${tile("Win rate", m.win_rate_pct == null ? "–" : fmt(m.win_rate_pct, 1) + " %", m.trades + " obchodů")}
+    ${tile("Profit factor", fmt(m.profit_factor))}
+    ${tile("Sharpe (denní, p.a.)", fmt(m.sharpe))}
+    ${tile("Náklady", usd(m.costs))}
+    ${tile("Odmítnuté signály", s.rejected_count)}
+  </div>
+  <div class="card"><h2>Vývoj kapitálu (USD)</h2><div class="chart" id="eq${idx}"></div></div>
+  <div class="grid2">
+    <div class="card"><h2>Otevřené pozice</h2>${table([
+      {h: "Symbol", f: r => esc(r.symbol)}, {h: "Ks", num: 1, f: r => fmt(r.units, 4)},
+      {h: "Nákup", num: 1, f: r => fmt(r.open_price)}, {h: "Cena", num: 1, f: r => fmt(r.last_price)},
+      {h: "Stop", num: 1, f: r => fmt(r.stop)}, {h: "Cíl", num: 1, f: r => fmt(r.target)},
+      {h: "P/L", num: 1, f: r => usd(r.unrealized), cls: r => signCls(r.unrealized)}], s.open_positions, "Žádné otevřené pozice")}</div>
+    <div class="card"><h2>Denní výnos</h2>${table([
+      {h: "Den", f: r => r.date}, {h: "Kapitál", num: 1, f: r => usd(r.equity)},
+      {h: "Den", num: 1, f: r => pct(r.ret_pct), cls: r => signCls(r.ret_pct)},
+      {h: "Kumulativně", num: 1, f: r => pct(r.cum_pct), cls: r => signCls(r.cum_pct)}], m.daily.slice().reverse().slice(0, 30))}</div>
+  </div>
+  <div class="card"><h2>Historie obchodů</h2>${table([
+    {h: "Zavřeno", f: r => dt(r.close_ts)}, {h: "Symbol", f: r => esc(r.symbol)},
+    {h: "Nákup", num: 1, f: r => fmt(r.open_price)}, {h: "Prodej", num: 1, f: r => fmt(r.close_price)},
+    {h: "Ks", num: 1, f: r => fmt(r.units, 4)}, {h: "P/L", num: 1, f: r => usd(r.pnl), cls: r => signCls(r.pnl)},
+    {h: "Náklady", num: 1, f: r => usd(r.costs)}, {h: "Zdroj P/L", f: r => esc(r.pnl_source)},
+    {h: "Důvod", f: r => esc(r.close_reason)}], s.trades)}</div>`;
+  if (s.id === "B") html += `<div class="card"><h2>Rozhodnutí AI (posledních 50)</h2>${table([
+    {h: "Čas", f: r => dt(r.ts)}, {h: "Symbol", f: r => esc(r.symbol)},
+    {h: "Výsledek", f: r => r.error ? "⚠ chyba" : r.take ? "✓ obchod" : "✕ přeskočit"},
+    {h: "Jistota", num: 1, f: r => fmt(r.confidence)}, {h: "Velikost", num: 1, f: r => r.size_factor == null ? "–" : "×" + r.size_factor},
+    {h: "Zdůvodnění / zdroje", wrap: 1, f: r => aiText(r)}], s.ai_decisions)}</div>`;
+  html += `<div class="card"><h2>Odmítnuté signály</h2>${table([
+    {h: "Čas", f: r => dt(r.ts)}, {h: "Symbol", f: r => esc(r.symbol)}, {h: "Vstup", num: 1, f: r => fmt(r.entry)},
+    {h: "Stop", num: 1, f: r => fmt(r.stop)}, {h: "Důvod odmítnutí", wrap: 1, f: r => esc(r.decision)}], s.rejected)}</div>
+  ${methodologyCard(s)}
+  <div class="card"><h2>Události agenta</h2>${table([
+    {h: "Čas", f: r => dt(r.ts)}, {h: "Úroveň", f: r => esc(r.level)}, {h: "Typ", f: r => esc(r.kind)},
+    {h: "Zpráva", wrap: 1, f: r => esc(r.message)}], s.events)}</div>`;
+  return html;
+}
+
+function aiText(r) {
+  if (r.error) return esc(r.error);
+  try {
+    const d = JSON.parse(r.decision || "{}");
+    if (d.pravidlo) return "Pravidlo: " + esc(d.pravidlo);
+    const items = (d.key_items || []).map(i => `<div style="color:var(--ink-2)">· ${esc(i.source)}, ${esc(i.published_at)}: ${esc(i.headline)} (${esc(i.impact)})</div>`).join("");
+    return `${esc(d.rationale)}<div style="color:var(--muted)">kontext: ${esc(d.context_bias)}, riziko událostí: ${esc(d.event_risk)}, v ceně: ${esc(d.priced_in)}</div>${items}`;
+  } catch { return "–"; }
+}
+
+const LABELS = {studie: "Studie", rezim: "Režim", strategie: "Strategie", data: "Data", zpravy: "Zprávy",
+  start: "Start", kapital_czk: "Kapitál (Kč)", kurz_usdczk: "Kurz USD/CZK", kapital_usd: "Kapitál (USD)",
+  naklady: "Náklady", ocenovani: "Oceňování", riziko: "Riziko", benchmark: "Benchmark"};
+function methodologyCard(s) {
+  return `<div class="card"><h2>Metodika</h2><dl>${Object.entries(s.methodology || {}).map(([k, v]) =>
+    `<dt>${esc(LABELS[k] || k)}</dt><dd>${esc(v ?? "–")}</dd>`).join("")}</dl></div>`;
+}
+
+function compareView() {
+  const st = data.studies;
+  let html = data.comparability.map(w => `<div class="warn">⚠ ${esc(w)}</div>`).join("");
+  html += `<div class="card"><h2>Kumulativní výnos (%) – studie vs. S&amp;P 500</h2><div class="legend" id="lg"></div><div class="chart" id="cmp"></div></div>`;
+  html += `<div class="card"><h2>Přehled</h2>${table([
+    {h: "Studie", f: s => esc(s.name)}, {h: "Strategie", f: s => esc(s.strategy)},
+    {h: "Kapitál", num: 1, f: s => s.metrics ? usd(s.metrics.current) : "–"},
+    {h: "Výnos", num: 1, f: s => s.metrics ? pct(s.metrics.return_pct) : "–", cls: s => s.metrics ? signCls(s.metrics.return_pct) : ""},
+    {h: "Max DD", num: 1, f: s => s.metrics ? pct(-s.metrics.max_dd_pct) : "–"},
+    {h: "Obchodů", num: 1, f: s => s.metrics ? s.metrics.trades : "–"},
+    {h: "Win rate", num: 1, f: s => s.metrics && s.metrics.win_rate_pct != null ? fmt(s.metrics.win_rate_pct, 1) + " %" : "–"},
+    {h: "Profit factor", num: 1, f: s => s.metrics ? fmt(s.metrics.profit_factor) : "–"},
+    {h: "Sharpe", num: 1, f: s => s.metrics ? fmt(s.metrics.sharpe) : "–"},
+    {h: "Náklady", num: 1, f: s => s.metrics ? usd(s.metrics.costs) : "–"},
+    {h: "Odmítnuté", num: 1, f: s => s.rejected_count ?? "–"}], st)}</div>`;
+  html += `<div class="grid2">${st.map(methodologyCard).join("")}</div>`;
+  return html;
+}
+
+function render() {
+  const names = [...data.studies.map(s => s.name), "Porovnání"];
+  if (+tab >= names.length) tab = "0";
+  $("#tabs").innerHTML = names.map((n, i) => `<button role="tab" aria-selected="${String(i) === tab}" data-i="${i}">${esc(n)}</button>`).join("");
+  $("#tabs").querySelectorAll("button").forEach(b => b.onclick = () => {
+    tab = b.dataset.i; try { localStorage.setItem("burza-tab", tab); } catch {} render();
+  });
+  $("#meta").textContent = `Aktualizováno ${dt(data.generated)} · trh ${data.market_open ? "otevřený" : "zavřený"} · obnova každých 60 s`;
+  const i = +tab;
+  if (i < data.studies.length) {
+    const s = data.studies[i];
+    $("#main").innerHTML = studyView(s, i);
+    if (s.series) lineChart($("#eq" + i), [{name: s.name, color: SERIES[i % 2],
+      points: s.series.map(p => ({t: Date.parse(p.t), v: p.equity}))}], "USD");
+  } else {
+    $("#main").innerHTML = compareView();
+    const series = data.studies.filter(s => s.series).map((s, k) => ({name: s.name, color: SERIES[data.studies.indexOf(s) % 2],
+      points: s.series.map(p => ({t: Date.parse(p.t), v: p.ret_pct}))}));
+    const withBench = data.studies.find(s => s.series && s.series.some(p => p.bench_pct != null));
+    if (withBench) series.push({name: "S&P 500 (SPY)", color: SERIES[2],
+      points: withBench.series.filter(p => p.bench_pct != null).map(p => ({t: Date.parse(p.t), v: p.bench_pct}))});
+    $("#lg").innerHTML = series.map(s => `<span style="--c:${s.color}">${esc(s.name)}</span>`).join("");
+    lineChart($("#cmp"), series, "%");
+  }
+}
+
+async function load() {
+  try {
+    const r = await fetch("/api/data", {cache: "no-store"});
+    data = await r.json();
+    render();
+  } catch (e) {
+    $("#meta").textContent = "Dashboard nemá spojení se serverem: " + e;
+  }
+}
+load();
+setInterval(load, 60000);
+addEventListener("resize", () => data && render());
+</script>
+</body>
+</html>

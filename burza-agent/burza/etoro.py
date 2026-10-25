@@ -15,7 +15,7 @@ log = logging.getLogger(__name__)
 
 BASE_URL = "https://public-api.etoro.com"
 
-LIVE_INTERVALS = {"1m": "OneMinute", "5m": "FiveMinutes", "15m": "FifteenMinutes"}
+LIVE_INTERVALS = {"1m": "OneMinute", "5m": "FiveMinutes", "15m": "FifteenMinutes", "1d": "OneDay"}
 
 # Stavy objednávky z /orders:lookup
 ORDER_FILLED = {3, 5}
@@ -173,6 +173,20 @@ class EtoroClient:
                      order_id: int | None = None) -> dict:
         params = {"referenceId": reference_id} if reference_id else {"orderId": str(order_id)}
         return self.request("GET", f"/api/v2/trading/info{self._env(demo)}/orders:lookup", params=params)
+
+    def trade_history(self, *, demo: bool, min_date: str, page_size: int = 100) -> list[dict]:
+        """Uzavřené obchody od min_date (YYYY-MM-DD) – přesné netProfit, closeRate, poplatky."""
+        path = "/api/v1/trading/info/trade/demo/history" if demo else "/api/v1/trading/info/trade/history"
+        out: list[dict] = []
+        page = 1
+        while True:
+            data = self.request("GET", path, params={"minDate": min_date, "page": str(page),
+                                                     "pageSize": str(page_size)})
+            rows = data if isinstance(data, list) else data.get("trades") or data.get("items") or []
+            out.extend(rows)
+            if len(rows) < page_size or page >= 50:
+                return out
+            page += 1
 
     def close_position(self, *, demo: bool, position_id: str, instrument_id: int) -> dict:
         path = f"/api/v1/trading/execution{self._env(demo)}/market-close-orders/positions/{position_id}"

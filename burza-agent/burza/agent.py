@@ -48,6 +48,8 @@ class Agent:
         self.clock = clock
         self.kill_file = Path(cfg.kill_file)
         self.heartbeat_file = Path(cfg.data_dir) / "heartbeat"
+        if hasattr(strategy, "bind"):  # Studie B potřebuje deník (evidence zpráv a rozhodnutí)
+            strategy.bind(journal, clock)
 
     # --- stav ---------------------------------------------------------------------
     def _load_risk_state(self, account: Account, now: datetime) -> RiskState:
@@ -97,7 +99,9 @@ class Agent:
                                level="ERROR")
             return
         if res.status == "filled":  # paper: známý přesný výsledek
-            self.journal.trade_close(p.position_id, res.fill_price, (res.raw or {}).get("pnl"), "simulace", reason)
+            raw = res.raw or {}
+            self.journal.trade_close(p.position_id, res.fill_price, raw.get("pnl"), "simulace", reason,
+                                     costs=raw.get("costs"))
         else:
             reasons = self.journal.get_state("close_reasons", {})
             reasons[p.position_id] = reason
@@ -108,20 +112,63 @@ class Agent:
         for p in self._own_positions(account):
             self._close(p, reason, prices.get(p.symbol))
 
-    def _sync_closed(self, account: Account, prices: dict[str, float]) -> None:
-        """Pozice, které z eToro zmizely (stop/target/ruční zavření) → uzavřít v deníku."""
+    def _sync_closed(self, account: Account, prices: dict[str, float], now: datetime) -> None:
+        """Pozice, které z eToro zmizely (stop/target/naše zavření) → uzavřít v deníku.
+        P/L se bere přesně z historie obchodů eToro; odhad z poslední ceny jen když historie
+        ani po 15 minutách pozici neobsahuje (a později se opraví v _reconcile)."""
         if isinstance(self.broker, PaperBroker):
             return
         live = {p.position_id for p in account.positions}
+        gone = [r for r in self.journal.open_trades(self.broker.mode) if r["position_id"] not in live]
+        if not gone:
+            return
         reasons = self.journal.get_state("close_reasons", {})
-        for row in self.journal.open_trades(self.broker.mode):
-            if row["position_id"] in live:
-                continue
-            px = prices.get(row["symbol"])
-            pnl = (px - row["open_price"]) * row["units"] if px and row["units"] else None
-            reason = reasons.pop(row["position_id"], "uzavřeno na eToro (stop/target)")
-            self.journal.trade_close(row["position_id"], px, pnl, "odhad", reason)
+        missing = self.journal.get_state("missing_since", {})
+        exact = {}
+        try:
+            exact = self.broker.closed_history(min(r["open_ts"][:10] for r in gone))
+        except EtoroError as exc:
+            self.journal.event("history_error", f"Historie obchodů nedostupná: {exc}", level="WARNING")
+        for row in gone:
+            pid = row["position_id"]
+            reason = reasons.get(pid, "uzavřeno na eToro (stop/target)")
+            ex = exact.get(pid)
+            if ex:
+                self.journal.trade_close(pid, ex.close_price, ex.pnl, "eToro", reason, ex.close_time or None, ex.fees)
+            else:
+                first = datetime.fromisoformat(missing.setdefault(pid, now.isoformat()))
+                if now - first < timedelta(minutes=15):
+                    continue
+                px = prices.get(row["symbol"])
+                pnl = (px - row["open_price"]) * row["units"] if px and row["units"] else None
+                self.journal.trade_close(pid, px, pnl, "odhad", reason)
+            reasons.pop(pid, None)
+            missing.pop(pid, None)
         self.journal.set_state("close_reasons", reasons)
+        self.journal.set_state("missing_since", missing)
+
+    def _reconcile(self, now: datetime) -> None:
+        """Jednou za hodinu nahradí odhadnuté P/L přesnými čísly z historie eToro."""
+        if isinstance(self.broker, PaperBroker):
+            return
+        last = self.journal.get_state("last_reconcile")
+        if last and now - datetime.fromisoformat(last) < timedelta(hours=1):
+            return
+        self.journal.set_state("last_reconcile", now.isoformat())
+        rows = self.journal.trades_needing_exact(self.broker.mode)
+        if not rows:
+            return
+        try:
+            exact = self.broker.closed_history(min(r["open_ts"][:10] for r in rows))
+        except EtoroError:
+            return
+        for r in rows:
+            ex = exact.get(r["position_id"])
+            if ex:
+                self.journal.event("reconcile", f"{r['symbol']}: P/L opraveno z eToro "
+                                                f"({r['pnl']} → {ex.pnl:.2f})", data={"position": r["position_id"]})
+                self.journal.trade_set_exact(r["position_id"], ex.close_price, ex.pnl,
+                                             ex.close_time or r["close_ts"], ex.fees)
 
     def _place(self, sig, decision, iid: int, st: RiskState) -> None:
         client_ref = str(uuid.uuid4())
@@ -168,9 +215,11 @@ class Agent:
         if market.is_trading_day(today) and self.risk.roll_day(st, today, account.equity):
             self.journal.event("new_day", f"Nový obchodní den {today}, equity {account.equity:.2f}")
 
-        self._sync_closed(account, prices)
+        self._sync_closed(account, prices, now)
+        self._reconcile(now)
         open_pnl = sum(p.unrealized_pnl for p in account.positions)
-        self.journal.equity_point(account.equity, account.cash, open_pnl)
+        self.journal.equity_point(account.equity, account.cash, open_pnl,
+                                  prices.get(self.cfg.benchmark_symbol))
 
         for action in self.risk.check_limits(st, account.equity):
             if action == "halt":
@@ -222,7 +271,7 @@ class Agent:
                 for c in new_bars:
                     for fill in self.broker.on_bar(symbol, c):
                         self.journal.trade_close(fill.position.position_id, fill.price, fill.pnl,
-                                                 "simulace", fill.reason, fill.time.isoformat())
+                                                 "simulace", fill.reason, fill.time.isoformat(), fill.costs)
                 account = self.broker.account()
 
             own = [p for p in self._own_positions(account) if p.symbol == symbol]
@@ -249,6 +298,14 @@ class Agent:
                 self._place(sig, decision, iid, st)
                 account = self.broker.account()
 
+        bench = self.cfg.benchmark_symbol
+        if bench and bench not in self.cfg.instruments:
+            try:
+                bc = self.data.closed_candles(self.cfg.benchmark_instrument_id, now)
+                if bc:
+                    prices[bench] = bc[-1].close
+            except EtoroError:
+                pass
         self.journal.set_state("last_bar", last_bars)
         self.journal.set_state("last_prices", prices)
         self._save(st)

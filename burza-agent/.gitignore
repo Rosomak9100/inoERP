@@ -1,6 +1,10 @@
 .env
 config.toml
+config_a.toml
+config_b.toml
 data/
+data_a/
+data_b/
 *.db
 *.db-journal
 STOP
