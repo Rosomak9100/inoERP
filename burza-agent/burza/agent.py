@@ -40,7 +40,8 @@ class LiveData:
             return cached  # další svíčka ještě není uzavřená
         candles = self.client.live_candles(instrument_id, self.interval, self.count)
         # Rozpracovanou svíčku zahodit – strategie vidí jen uzavřené (žádný look-ahead).
-        closed = [c for c in candles if c.time + self.step <= now]
+        # eToro vrací i pre-market/after-hours; backtest pracuje jen s řádnou seancí, živě stejně.
+        closed = [c for c in candles if c.time + self.step <= now and market.in_session(c.time)]
         self._cache[instrument_id] = closed
         return closed
 
@@ -251,8 +252,9 @@ class Agent:
             self._save(st)
             return "session_end"
 
+        last_minutes = getattr(self.strategy, "no_entry_last_minutes", None) or self.cfg.session.no_entry_last_minutes
         entry_window = (market.minutes_since_open(now) >= self.cfg.session.no_entry_first_minutes and
-                        market.minutes_to_close(now) >= self.cfg.session.no_entry_last_minutes)
+                        market.minutes_to_close(now) >= last_minutes)
         last_bars: dict[str, str] = self.journal.get_state("last_bar", {})
 
         for symbol, iid in self.cfg.instruments.items():

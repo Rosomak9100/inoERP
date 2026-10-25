@@ -25,11 +25,26 @@ co prošlo nezávislým testem, a přežije špatná období**.
 | **Pásmo šumu – intradenní momentum** (`noise_momentum`) | Když cena v kontrolním čase (každých 30 min) vyjede nad „pásmo šumu“ (běžný pohyb od otevření v tutéž denní dobu za 14 dní) a je nad VWAP, jde se s trendem; výstup při návratu pod pásmo/VWAP, jinak na konci dne. | Zarattini, Aziz & Barbon (2024), SPY 2007–2024: autoři uvádějí 19,6 % ročně a Sharpe 1,33 po nákladech, long i short. Nezávislá replikace (TradingView) dala nižší Sharpe. | **Nově implementováno** (zatím jen long) – čeká na backtest na reálných datech |
 | **Opening range breakout** (`orb`) | Průraz rozpětí prvních minut dne ve směru průrazu. | Zarattini & Aziz (2023, QQQ, 5min ORB) uvádějí výrazný zisk s pákou. Nezávislá replikace na 5 indexech (2015–2026): hrubý výsledek zopakován, **po nákladech ≈ 0**, 4 z 5 trhů záporné. | Implementováno (15min rozpětí) – skepse |
 | **VWAP pullback** (`vwap_pullback`) | Trend nad VWAP, návrat k EMA/VWAP a obnovení růstu. | Praktická strategie, bez silné akademické opory. | Implementováno – rozhodne backtest |
-| **Intradenní momentum poslední půlhodiny** | Výnos za první půlhodinu (vč. přes noc) předpovídá výnos poslední půlhodiny. | Gao, Han, Li & Zhou (2018, *Journal of Financial Economics*), SPY 1993–2013 + 10 dalších ETF; silnější ve volatilních dnech, při vysokém objemu a **ve dnech makro zpráv**. Vysvětlená variabilita je malá (R² ≈ 2 %). | Kandidát na další verzi |
+| **Intradenní momentum poslední půlhodiny** (`intraday_momentum`) | Výnos od včerejšího close do 10:00 ET předpovídá výnos poslední půlhodiny; long v 15:30 ET po kladném ránu. | Gao, Han, Li & Zhou (2018, *Journal of Financial Economics*), SPY 1993–2013 + 10 dalších ETF; silnější ve volatilních dnech, při vysokém objemu a **ve dnech makro zpráv**. Vysvětlená variabilita je malá (R² ≈ 2 %). | **Implementováno** (jen long; agent zavírá 10 min před koncem, drží tedy 20 min) |
 | Mean reversion (Bollinger, RSI extrémy) | Návrat k průměru po přestřelení. | Krátkodobý reversal je známý spíš na denním/týdenním horizontu; intradenně u likvidních ETF slabý po nákladech. | Neimplementováno |
 
 **Omezení:** agent je zatím jen long. Většina citovaných studií obchoduje oběma směry, takže naše výsledky
 nebudou přímo srovnatelné. Short přes CFD je možné doplnit (vyžaduje stop-loss povinně).
+
+### Výsledky prvního backtestu (120 dní reálných dat, 25. 10. 2026)
+
+Žádná ze tří tehdejších strategií neprošla – v testovací části všechny prodělaly
+(vwap_pullback −2,5 %, PF 0,51; orb −0,3 %; noise_momentum −0,3 %). Vzorek byl ale malý (15–141 obchodů).
+Další test: 1 rok dat, 4 strategie, 6 instrumentů vč. komodit, ukazatel t-stat.
+Opraveno: backtest při denním limitu zavíral pozice cenou jiného symbolu; živý agent nově
+používá jen svíčky řádné seance (stejně jako backtest).
+
+### Komodity
+
+Agent obchoduje komodity přes ETF na americké burze – **GLD** (zlato) a **USO** (ropa WTI). Mají stejné
+obchodní hodiny, nízký spread (~0,02 USD) a eToro je umožňuje obchodovat bez páky. Pozor: USO drží futures
+kontrakty, při rolování se může dlouhodobě odchylovat od ceny ropy – pro intradenní obchody to nevadí.
+Studie B u nich má méně firemních zpráv; důležitější je makro (USD, ropa WTI, VIX z FRED).
 
 ## 3. Zprávy a makro (Studie B)
 
@@ -76,7 +91,7 @@ nebudou přímo srovnatelné. Short přes CFD je možné doplnit (vyžaduje stop
 
 ## 7. Další kroky
 
-1. **Spustit `6_BACKTEST.bat`** – porovná všechny tři strategie na 120 dnech reálných dat z eToro.
+1. **Spustit `6_BACKTEST.bat`** – porovná všechny čtyři strategie na roce reálných dat z eToro.
 2. Pro Studii A a jako základ Studie B zvolit strategii podle sloupce TEST (ne podle vývojové části).
 3. Další výzkum a implementace: strategie poslední půlhodiny (Gao a kol.), short strana, kalendář BLS/EDGAR
    pro Studii B, filtr „stocks in play“ (vysoký relativní objem) pro ORB.

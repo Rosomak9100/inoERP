@@ -187,3 +187,31 @@ class NoiseMomentumTests(unittest.TestCase):
                 end = market.to_et(a.time + timedelta(minutes=5))
                 self.assertEqual((end.hour * 60 + end.minute - 570) % 30, 0)
         self.assertGreater(found, 0)
+
+
+class LastHalfHourTests(unittest.TestCase):
+    def test_entry_only_at_1530_after_positive_morning(self):
+        from burza.strategy import LastHalfHourMomentum
+        days = [date(2026, 10, 19) + timedelta(days=i) for i in range(5)]
+        cs = multi_day(days, drift=0.001, wave=0.0005)
+        strat = LastHalfHourMomentum()
+        hits = []
+        for n in range(40, len(cs) + 1):
+            sig = strat.entry("SPY", cs[:n])
+            if sig:
+                end = market.to_et(sig.time + timedelta(minutes=5))
+                hits.append((end.hour, end.minute))
+                self.assertLess(sig.stop, sig.entry)
+        self.assertTrue(hits)
+        self.assertTrue(all(h == (15, 30) for h in hits))
+
+    def test_no_entry_after_negative_morning(self):
+        from burza.strategy import LastHalfHourMomentum
+        days = [date(2026, 10, 19) + timedelta(days=i) for i in range(5)]
+        cs = multi_day(days, drift=-0.001, wave=0.0005)
+        self.assertFalse(any(LastHalfHourMomentum().entry("SPY", cs[:n]) for n in range(40, len(cs) + 1)))
+
+    def test_in_session_filter(self):
+        self.assertTrue(market.in_session(utc(2026, 10, 26, 14, 0)))
+        self.assertFalse(market.in_session(utc(2026, 10, 26, 12, 0)))   # pre-market
+        self.assertFalse(market.in_session(utc(2026, 10, 26, 21, 0)))   # after-hours

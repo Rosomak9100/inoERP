@@ -8,6 +8,7 @@ from unittest import mock
 from burza.agent import Agent
 from burza.backtest import run_backtest, walk_forward
 from burza.broker import EtoroBroker, PaperBroker
+from burza.models import Candle
 from burza.etoro import EtoroClient
 from burza.journal import Journal
 from burza.strategy import VwapPullback
@@ -143,6 +144,37 @@ class AgentTests(unittest.TestCase):
 
 
 class BacktestTests(unittest.TestCase):
+    def test_flatten_all_uses_each_symbols_price(self):
+        """Regrese: pozice SPY za 19 USD se při limitu „prodala“ za 2354 USD (cena NVDA)."""
+        from burza.backtest import flatten_all
+        from burza.config import CostConfig
+        b = PaperBroker(100_000, CostConfig(0, 0, 0))
+        b.open_long(symbol="SPY", instrument_id=1, amount_usd=1_000, stop=1, target=1e9, client_ref="a", price_hint=19.0)
+        b.open_long(symbol="NVDA", instrument_id=2, amount_usd=1_000, stop=1, target=1e9, client_ref="b", price_hint=2354.0)
+        t = utc(2026, 10, 26, 15, 0)
+        b.on_bar("SPY", Candle(t, 19.0, 19.2, 18.9, 19.1))
+        b.on_bar("NVDA", Candle(t, 2354, 2360, 2350, 2355))
+        fills = {f.position.symbol: f for f in flatten_all(b, "limit", t)}
+        self.assertAlmostEqual(fills["SPY"].price, 19.1)
+        self.assertAlmostEqual(fills["NVDA"].price, 2355)
+        self.assertLess(abs(fills["SPY"].pnl), 20)
+
+    def test_exit_prices_belong_to_own_symbol(self):
+        """Regrese: při limitu se pozice zavíraly cenou jiného symbolu (SPY 19 → 2354 USD)."""
+        from burza.strategy import STRATEGIES
+        cfg = config()
+        cfg.risk.max_daily_loss_pct = 0.5  # ať se limit spouští často
+        days = [date(2026, 9, 1) + timedelta(days=i) for i in range(40)]
+        days = [d for d in days if d.weekday() < 5 and d != date(2026, 9, 7)]
+        cheap = multi_day(days, drift=-0.0004)
+        rich = [type(c)(c.time, c.open * 50, c.high * 50, c.low * 50, c.close * 50, c.volume)
+                for c in multi_day(days, drift=0.0006)]
+        for name, cls in STRATEGIES.items():
+            res = run_backtest(cfg, cls(), {"CHEAP": cheap, "RICH": rich}, 10_000)
+            for t in res.trades:
+                self.assertLess(abs(t.exit / t.entry - 1), 0.2, f"{name}: {t}")
+            self.assertLess(res.final, 20_000, name)
+
     def test_backtest_and_walk_forward(self):
         cfg = config()
         days = [date(2026, 9, 1) + timedelta(days=i) for i in range(40)]

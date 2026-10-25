@@ -54,6 +54,11 @@ class Result:
             mean = sum(rets) / len(rets)
             sd = math.sqrt(sum((r - mean) ** 2 for r in rets) / (len(rets) - 1))
             sharpe = mean / sd * math.sqrt(252) if sd else 0.0
+        t_stat = None  # průměrný obchod / jeho směrodatná chyba; > 2 slušné, > 3 přesvědčivé
+        if len(pnls) > 2:
+            mp = sum(pnls) / len(pnls)
+            sdp = math.sqrt(sum((p - mp) ** 2 for p in pnls) / (len(pnls) - 1))
+            t_stat = mp / (sdp / math.sqrt(len(pnls))) if sdp else None
         return {
             "pocatecni_kapital": round(self.initial, 2),
             "konecny_kapital": round(self.final, 2),
@@ -63,6 +68,7 @@ class Result:
             "profit_factor": round(sum(wins) / -sum(losses), 2) if losses and sum(losses) else None,
             "max_drawdown_pct": round(max_dd * 100, 2),
             "sharpe": round(sharpe, 2),
+            "t_stat": round(t_stat, 2) if t_stat is not None else None,
             "nejlepsi_obchod": round(max(pnls), 2) if pnls else 0,
             "nejhorsi_obchod": round(min(pnls), 2) if pnls else 0,
             "odmitnute_signaly": self.rejected,
@@ -77,6 +83,15 @@ def group_by_day(candles: list[Candle]) -> dict[date, list[Candle]]:
         if start <= market.to_et(c.time) < end:
             out.setdefault(d, []).append(c)
     return out
+
+
+def flatten_all(broker: PaperBroker, reason: str, when: datetime | None) -> list:
+    """Zavře všechny pozice, každou za SVOU poslední cenu (ne za cenu právě zpracovávané svíčky)."""
+    fills = []
+    for p in list(broker.positions.values()):
+        broker.close(p, reason=reason, price_hint=broker.last_price.get(p.symbol), when=when)
+        fills.append(broker.last_closed)
+    return fills
 
 
 def run_backtest(cfg: Config, strategy: Strategy, data: dict[str, list[Candle]],
@@ -122,9 +137,7 @@ def run_backtest(cfg: Config, strategy: Strategy, data: dict[str, list[Candle]],
             account = broker.account()
             if "halt" in risk.check_limits(st, account.equity) or (
                     st.daily_blocked and cfg.risk.flatten_on_daily_limit):
-                for p in list(broker.positions.values()):
-                    broker.close(p, reason="limit", price_hint=c.close, when=c.time)
-                    record([broker.last_closed])
+                record(flatten_all(broker, "limit", c.time))
             bar_end = c.time + timedelta(minutes=cfg.interval_minutes)
             if market.minutes_to_close(bar_end) <= sess_cfg.flatten_minutes_before_close:
                 for p in [p for p in broker.positions.values() if p.symbol == sym]:
@@ -139,8 +152,9 @@ def run_backtest(cfg: Config, strategy: Strategy, data: dict[str, list[Candle]],
                     broker.close(own[0], reason=reason, price_hint=c.close, when=c.time)
                     record([broker.last_closed])
                 continue
+            last_minutes = getattr(strategy, "no_entry_last_minutes", None) or sess_cfg.no_entry_last_minutes
             if (market.minutes_since_open(bar_end) < sess_cfg.no_entry_first_minutes or
-                    market.minutes_to_close(bar_end) < sess_cfg.no_entry_last_minutes):
+                    market.minutes_to_close(bar_end) < last_minutes):
                 continue
             sig = strategy.entry(sym, hist)
             if sig is None:
@@ -154,9 +168,7 @@ def run_backtest(cfg: Config, strategy: Strategy, data: dict[str, list[Candle]],
             else:
                 result.rejected += 1
         # pojistka: nic nepřenášet přes noc
-        for p in list(broker.positions.values()):
-            broker.close(p, reason="konec dne", price_hint=broker.last_price.get(p.symbol), when=None)
-            record([broker.last_closed])
+        record(flatten_all(broker, "konec dne", None))
         if active:
             result.daily_equity.append((d, broker.account().equity))
     result.final = broker.account().equity

@@ -48,8 +48,12 @@ commission_usd = 0.0          # za jednu stranu obchodu
 slippage_bps = 1.0
 
 # Instrumenty: symbol = eToro instrumentId (ověřeno 24. 10. 2026)
+# Akcie a akciové ETF + komodity přes ETF na americké burze (stejné obchodní hodiny):
+# GLD = zlato (SPDR Gold), USO = ropa WTI (United States Oil Fund)
 [instruments]
 SPY = 3000
 QQQ = 3006
 AAPL = 1001
 NVDA = 1137
+GLD = 3025
+USO = 3007

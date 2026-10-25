@@ -151,17 +151,19 @@ def cmd_compare(cfg: Config, args) -> int:
     print()
     print(f"Výsledky (náklady: spread {cfg.costs.spread_bps} bps, skluz {cfg.costs.slippage_bps} bps). "
           "Rozhoduje sloupec TEST – data, na kterých se nic neladilo.")
-    head = f"{'strategie':16} {'část':6} {'výnos %':>8} {'obchodů':>8} {'win %':>6} {'PF':>5} {'max DD %':>8} {'Sharpe':>7}"
+    head = (f"{'strategie':18} {'část':6} {'výnos %':>8} {'obchodů':>8} {'win %':>6} {'PF':>5} "
+            f"{'max DD %':>8} {'Sharpe':>7} {'t-stat':>7}")
     print(head)
     print("-" * len(head))
     for name, wf in rows:
         for part in ("vyvoj", "test"):
             m = wf[part]
-            print(f"{name:16} {part:6} {m['vynos_pct']:>8.2f} {m['obchodu']:>8} {m['win_rate_pct']:>6} "
-                  f"{str(m['profit_factor']):>5} {m['max_drawdown_pct']:>8.2f} {m['sharpe']:>7.2f}")
+            print(f"{name:18} {part:6} {m['vynos_pct']:>8.2f} {m['obchodu']:>8} {m['win_rate_pct']:>6} "
+                  f"{str(m['profit_factor']):>5} {m['max_drawdown_pct']:>8.2f} {m['sharpe']:>7.2f} "
+                  f"{str(m['t_stat']):>7}")
     print()
-    print("Pozor: dobrý výsledek v minulosti nezaručuje zisk v budoucnu. Strategie bez kladného výnosu "
-          "v části TEST nepoužívej.")
+    print("Jak číst: strategie je použitelná, jen když má v části TEST kladný výnos, PF > 1.2, aspoň 30 obchodů")
+    print("a t-stat > 2 (náhoda je pak málo pravděpodobná). Minulost nezaručuje budoucnost.")
     return 0
 
 
@@ -337,6 +339,30 @@ def cmd_init_start(cfg: Config, args) -> int:
     return 0
 
 
+def cmd_sync_config(cfg: Config, args) -> int:
+    """Doplní do configů instrumenty, které přibyly ve vzorových configech (nic jiného nemění)."""
+    import re
+    import tomllib
+    for path in args.configs:
+        target = Path(path)
+        example = target.with_name(target.stem + ".example.toml")
+        if not target.exists() or not example.exists():
+            continue
+        text = target.read_text(encoding="utf-8-sig")
+        have = {k.upper() for k in tomllib.loads(text).get("instruments", {})}
+        want = tomllib.loads(example.read_text(encoding="utf-8")).get("instruments", {})
+        missing = {k: v for k, v in want.items() if k.upper() not in have}
+        if not missing:
+            print(f"{path}: instrumenty aktuální")
+            continue
+        lines = "".join(f"{k} = {v}\n" for k, v in missing.items())
+        text, n = re.subn(r"^\[instruments\][^\n]*\n", lambda m: m.group(0) + lines, text, count=1, flags=re.M)
+        if n:
+            target.write_text(text, encoding="utf-8")
+            print(f"{path}: přidáno {', '.join(missing)}")
+    return 0
+
+
 def cmd_dashboard(cfg: Config, args) -> int:
     from .dashboard import serve
     cfgs = [load_config(path, validate=False) for path in args.studies] if args.studies else [cfg]
@@ -357,7 +383,7 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--strategy")
     b.add_argument("--walk-forward", action="store_true", help="vývojová 70 % / testovací 30 % dnů")
     c = sub.add_parser("compare", help="porovná všechny strategie (walk-forward)")
-    c.add_argument("--days", type=int, default=120)
+    c.add_argument("--days", type=int, default=365)
     c.add_argument("--refresh", action="store_true", help="znovu stáhnout historii")
     r = sub.add_parser("run", help="spustí agenta")
     r.add_argument("--once", action="store_true", help="jen jeden cyklus")
@@ -374,6 +400,8 @@ def main(argv: list[str] | None = None) -> int:
     i = sub.add_parser("init-start", help="společný kurz USD/CZK a datum startu do configů")
     i.add_argument("--configs", nargs="+", required=True)
     i.add_argument("--force", action="store_true")
+    sc = sub.add_parser("sync-config", help="doplní nové instrumenty ze vzorových configů")
+    sc.add_argument("--configs", nargs="+", required=True)
     d = sub.add_parser("dashboard", help="webový dashboard obou studií")
     d.add_argument("--studies", nargs="+", help="configy studií, např. config_a.toml config_b.toml")
     d.add_argument("--host", default="127.0.0.1")
@@ -383,14 +411,15 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     try:
-        cfg = load_config(args.config, validate=args.cmd not in ("dashboard", "init-start"))
+        cfg = load_config(args.config, validate=args.cmd not in ("dashboard", "init-start", "sync-config"))
     except ConfigError as exc:
         print("Chyba konfigurace:", exc)
         return 2
     handlers = {"check": cmd_check, "fetch": cmd_fetch, "backtest": cmd_backtest, "run": cmd_run,
                 "kill": cmd_kill, "resume": cmd_resume, "reset-halt": cmd_reset_halt,
                 "status": cmd_status, "report": cmd_report, "test-order": cmd_test_order,
-                "dashboard": cmd_dashboard, "init-start": cmd_init_start, "compare": cmd_compare}
+                "dashboard": cmd_dashboard, "init-start": cmd_init_start, "compare": cmd_compare,
+                "sync-config": cmd_sync_config}
     try:
         return handlers[args.cmd](cfg, args)
     except ConfigError as exc:

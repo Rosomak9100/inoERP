@@ -46,6 +46,7 @@ class VwapPullback(Strategy):
     """Trend nad VWAP + EMA9 > EMA21, návrat k EMA21/VWAP a obnovení růstu."""
 
     name = "vwap_pullback"
+    history_bars = 150  # EMA21/RSI14/ATR14 jsou po 150 svíčkách ustálené
 
     def __init__(self, reward_risk: float = 2.0):
         self.reward_risk = reward_risk
@@ -91,6 +92,7 @@ class OpeningRangeBreakout(Strategy):
     """Průraz 15min opening range nahoru s potvrzením VWAP a objemem."""
 
     name = "orb"
+    history_bars = 150
 
     def __init__(self, range_minutes: int = 15, reward_risk: float = 2.0):
         self.range_minutes = range_minutes
@@ -202,7 +204,7 @@ class NoiseAreaMomentum(Strategy):
         if len(candles) < MIN_HISTORY or not self._check_time(candles):
             return None
         b = self.bands(candles)
-        a = ind.atr(candles, 14)[-1]
+        a = ind.atr(candles[-100:], 14)[-1]
         if b is None or a is None or a <= 0:
             return None
         upper, _, today = b
@@ -225,8 +227,48 @@ class NoiseAreaMomentum(Strategy):
         return None
 
 
+class LastHalfHourMomentum(Strategy):
+    """Intradenní momentum podle Gao, Han, Li & Zhou (2018, JFE): výnos od včerejšího close
+    do 10:00 ET předpovídá směr poslední půlhodiny. Long v 15:30 ET, když byl ranní výnos kladný
+    (nad `min_move`); drží se do konce seance (agent zavírá 10 min před koncem)."""
+
+    name = "intraday_momentum"
+    history_bars = 200
+    no_entry_last_minutes = 25  # vstup přesně v 15:30 ET musí projít oknem pro vstupy
+
+    def __init__(self, min_move_pct: float = 0.1, entry_minute: int = 360, reward_risk: float = 2.0):
+        self.min_move = min_move_pct / 100
+        self.entry_minute = entry_minute  # minut od otevření (360 = 15:30 ET)
+
+    def entry(self, symbol: str, candles: list[Candle]) -> Signal | None:
+        if len(candles) < 30:
+            return None
+        step = candles[-1].time - candles[-2].time
+        end = market.to_et(candles[-1].time + step)
+        start, _ = market.session_bounds(end.date())
+        if int((end - start).total_seconds() // 60) != self.entry_minute:
+            return None
+        days = sessions(candles)
+        if len(days) < 2:
+            return None
+        today, prev = days[-1], days[-2]
+        first = [c for c in today if market.to_et(c.time + step) <= start + timedelta(minutes=30)]
+        if not first:
+            return None
+        r1 = first[-1].close / prev[-1].close - 1
+        if r1 < self.min_move:
+            return None
+        a = ind.atr(candles[-100:], 14)[-1]
+        if a is None or a <= 0:
+            return None
+        entry = candles[-1].close
+        stop = _bounded_stop(entry, entry - 1.5 * a, a)
+        return Signal(symbol, "long", entry, stop, entry + 2 * (entry - stop),
+                      f"ranní výnos {r1 * 100:+.2f} % → momentum poslední půlhodiny", candles[-1].time)
+
+
 STRATEGIES = {VwapPullback.name: VwapPullback, OpeningRangeBreakout.name: OpeningRangeBreakout,
-              NoiseAreaMomentum.name: NoiseAreaMomentum}
+              NoiseAreaMomentum.name: NoiseAreaMomentum, LastHalfHourMomentum.name: LastHalfHourMomentum}
 
 
 def make_strategy(name: str) -> Strategy:
