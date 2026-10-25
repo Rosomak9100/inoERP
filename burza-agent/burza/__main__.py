@@ -130,40 +130,66 @@ def cmd_backtest(cfg: Config, args) -> int:
 
 
 def cmd_compare(cfg: Config, args) -> int:
-    """Stáhne historii (pokud chybí) a porovná všechny strategie walk-forward testem."""
+    """Porovná všechny strategie walk-forward testem + diagnostika (bez nákladů, po instrumentech)."""
+    import copy
+    import time as _time
+    from .backtest import group_by_day
+    from .config import CostConfig
     from .strategy import STRATEGIES
-    missing = [s for s in cfg.instruments
-               if not (Path(cfg.data_dir) / "history" / f"{s}_{cfg.interval}.csv").exists()]
-    if missing or args.refresh:
+
+    def path(sym):
+        return Path(cfg.data_dir) / "history" / f"{sym}_{cfg.interval}.csv"
+
+    stale = [s for s in cfg.instruments
+             if not path(s).exists() or _time.time() - path(s).stat().st_mtime > 20 * 3600]
+    if stale or args.refresh:
         print(f"Stahuji historii {args.days} dní z eToro (chvíli to trvá) …")
         cmd_fetch(cfg, args)
-    data = {s: load_csv(Path(cfg.data_dir) / "history" / f"{s}_{cfg.interval}.csv") for s in cfg.instruments}
+    data = {s: load_csv(path(s)) for s in cfg.instruments}
     initial = cfg.initial_capital_usd or 10_000.0
+    days = sorted({d for c in data.values() for d in group_by_day(c)})
+    test_days = days[int(len(days) * 0.7):]
+    gross_cfg = copy.copy(cfg)
+    gross_cfg.costs = CostConfig(0.0, 0.0, 0.0)
+
     rows = []
     for name in STRATEGIES:
         print(f"Testuji {name} …")
         wf = walk_forward(cfg, make_strategy(name), data, initial)
-        rows.append((name, wf))
+        gross = run_backtest(gross_cfg, make_strategy(name), data, initial, test_days).metrics()
+        per_sym = {sym: run_backtest(cfg, make_strategy(name), {sym: data[sym]}, initial, test_days).metrics()
+                   for sym in data}
+        rows.append((name, wf, gross, per_sym))
         with (Path(cfg.data_dir) / "backtests.jsonl").open("a", encoding="utf-8") as f:
             f.write(json.dumps({"ts": utcnow().isoformat(), "strategie": name, "interval": cfg.interval,
-                                "naklady": vars(cfg.costs), "risk": vars(cfg.risk), **wf},
+                                "naklady": vars(cfg.costs), "risk": vars(cfg.risk), **wf,
+                                "test_bez_nakladu": gross, "test_po_instrumentech": per_sym},
                                ensure_ascii=False) + "\n")
     print()
-    print(f"Výsledky (náklady: spread {cfg.costs.spread_bps} bps, skluz {cfg.costs.slippage_bps} bps). "
-          "Rozhoduje sloupec TEST – data, na kterých se nic neladilo.")
+    print(f"1) Výsledky (náklady: spread {cfg.costs.spread_bps} bps, skluz {cfg.costs.slippage_bps} bps). "
+          "Rozhoduje část TEST – data, na kterých se nic neladilo.")
     head = (f"{'strategie':18} {'část':6} {'výnos %':>8} {'obchodů':>8} {'win %':>6} {'PF':>5} "
-            f"{'max DD %':>8} {'Sharpe':>7} {'t-stat':>7}")
+            f"{'max DD %':>8} {'Sharpe':>7} {'t-stat':>7} {'bez nákl.%':>10}")
     print(head)
     print("-" * len(head))
-    for name, wf in rows:
+    for name, wf, gross, _ in rows:
         for part in ("vyvoj", "test"):
             m = wf[part]
+            extra = f"{gross['vynos_pct']:>10.2f}" if part == "test" else f"{'':>10}"
             print(f"{name:18} {part:6} {m['vynos_pct']:>8.2f} {m['obchodu']:>8} {m['win_rate_pct']:>6} "
                   f"{str(m['profit_factor']):>5} {m['max_drawdown_pct']:>8.2f} {m['sharpe']:>7.2f} "
-                  f"{str(m['t_stat']):>7}")
+                  f"{str(m['t_stat']):>7} {extra}")
+    print()
+    syms = list(data)
+    print("2) Část TEST po instrumentech – výnos % (počet obchodů):")
+    print(f"{'strategie':18} " + " ".join(f"{s:>13}" for s in syms))
+    for name, _, _, per_sym in rows:
+        cells = [f"{per_sym[s]['vynos_pct']:>+7.2f} ({per_sym[s]['obchodu']:>3})" for s in syms]
+        print(f"{name:18} " + " ".join(f"{c:>13}" for c in cells))
     print()
     print("Jak číst: strategie je použitelná, jen když má v části TEST kladný výnos, PF > 1.2, aspoň 30 obchodů")
-    print("a t-stat > 2 (náhoda je pak málo pravděpodobná). Minulost nezaručuje budoucnost.")
+    print("a t-stat > 2. 'bez nákl.' ukazuje, zda strategie má vůbec nějakou výhodu, kterou pak sežerou náklady.")
+    print("Minulost nezaručuje budoucnost.")
     return 0
 
 
