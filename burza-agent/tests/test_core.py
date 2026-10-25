@@ -147,3 +147,43 @@ class StrategyTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NoiseMomentumTests(unittest.TestCase):
+    def days(self, n):
+        out, d = [], date(2026, 9, 1)
+        while len(out) < n:
+            if market.is_trading_day(d):
+                out.append(d)
+            d += timedelta(days=1)
+        return out
+
+    def test_bands_from_same_time_of_day(self):
+        from burza.strategy import NoiseAreaMomentum
+        cs = multi_day(self.days(8))
+        b = NoiseAreaMomentum(lookback_days=5).bands(cs)
+        self.assertIsNotNone(b)
+        upper, lower, today = b
+        self.assertGreater(upper, today[0].open)
+        self.assertLess(lower, today[0].open)
+
+    def test_needs_enough_days(self):
+        from burza.strategy import NoiseAreaMomentum
+        self.assertIsNone(NoiseAreaMomentum().bands(multi_day(self.days(3))))
+
+    def test_no_lookahead_and_valid_stops(self):
+        from burza.strategy import NoiseAreaMomentum
+        cs = multi_day(self.days(12), drift=0.0012)
+        strat = NoiseAreaMomentum()
+        found = 0
+        for n in range(500, len(cs)):
+            a = strat.entry("SPY", cs[:n])
+            altered = cs[:n] + [Candle(c.time, c.open * 3, c.high * 3, c.low * 3, c.close * 3) for c in cs[n:n + 10]]
+            self.assertEqual(a, strat.entry("SPY", altered[:n]))
+            if a:
+                found += 1
+                self.assertLess(a.stop, a.entry)
+                # vstup jen v kontrolních časech (každých 30 min od otevření)
+                end = market.to_et(a.time + timedelta(minutes=5))
+                self.assertEqual((end.hour * 60 + end.minute - 570) % 30, 0)
+        self.assertGreater(found, 0)

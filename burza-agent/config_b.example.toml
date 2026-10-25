@@ -10,7 +10,7 @@ study_name = "Studie B – zprávy + makro"
 mode = "paper"
 real_trading_confirmed = false
 
-strategy = "vwap_pullback"   # vwap_pullback | orb
+strategy = "vwap_pullback"   # vwap_pullback | orb | noise_momentum
 interval = "5m"              # 1m | 5m | 15m
 poll_seconds = 30
 

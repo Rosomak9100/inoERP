@@ -131,7 +131,7 @@ def run_backtest(cfg: Config, strategy: Strategy, data: dict[str, list[Candle]],
                     broker.close(p, reason="konec seance", price_hint=c.close, when=c.time)
                     record([broker.last_closed])
                 continue
-            hist = history[sym][-300:]
+            hist = history[sym][-strategy.history_bars:]
             own = [p for p in broker.positions.values() if p.symbol == sym]
             if own:
                 reason = strategy.exit(own[0], hist)

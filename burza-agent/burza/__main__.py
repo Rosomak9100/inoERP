@@ -129,6 +129,42 @@ def cmd_backtest(cfg: Config, args) -> int:
     return 0
 
 
+def cmd_compare(cfg: Config, args) -> int:
+    """Stáhne historii (pokud chybí) a porovná všechny strategie walk-forward testem."""
+    from .strategy import STRATEGIES
+    missing = [s for s in cfg.instruments
+               if not (Path(cfg.data_dir) / "history" / f"{s}_{cfg.interval}.csv").exists()]
+    if missing or args.refresh:
+        print(f"Stahuji historii {args.days} dní z eToro (chvíli to trvá) …")
+        cmd_fetch(cfg, args)
+    data = {s: load_csv(Path(cfg.data_dir) / "history" / f"{s}_{cfg.interval}.csv") for s in cfg.instruments}
+    initial = cfg.initial_capital_usd or 10_000.0
+    rows = []
+    for name in STRATEGIES:
+        print(f"Testuji {name} …")
+        wf = walk_forward(cfg, make_strategy(name), data, initial)
+        rows.append((name, wf))
+        with (Path(cfg.data_dir) / "backtests.jsonl").open("a", encoding="utf-8") as f:
+            f.write(json.dumps({"ts": utcnow().isoformat(), "strategie": name, "interval": cfg.interval,
+                                "naklady": vars(cfg.costs), "risk": vars(cfg.risk), **wf},
+                               ensure_ascii=False) + "\n")
+    print()
+    print(f"Výsledky (náklady: spread {cfg.costs.spread_bps} bps, skluz {cfg.costs.slippage_bps} bps). "
+          "Rozhoduje sloupec TEST – data, na kterých se nic neladilo.")
+    head = f"{'strategie':16} {'část':6} {'výnos %':>8} {'obchodů':>8} {'win %':>6} {'PF':>5} {'max DD %':>8} {'Sharpe':>7}"
+    print(head)
+    print("-" * len(head))
+    for name, wf in rows:
+        for part in ("vyvoj", "test"):
+            m = wf[part]
+            print(f"{name:16} {part:6} {m['vynos_pct']:>8.2f} {m['obchodu']:>8} {m['win_rate_pct']:>6} "
+                  f"{str(m['profit_factor']):>5} {m['max_drawdown_pct']:>8.2f} {m['sharpe']:>7.2f}")
+    print()
+    print("Pozor: dobrý výsledek v minulosti nezaručuje zisk v budoucnu. Strategie bez kladného výnosu "
+          "v části TEST nepoužívej.")
+    return 0
+
+
 def _agent(cfg: Config) -> tuple[Agent, Journal]:
     journal = Journal(cfg.db_path)
     client = _client(cfg)
@@ -320,6 +356,9 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--days", type=int, default=60)
     b.add_argument("--strategy")
     b.add_argument("--walk-forward", action="store_true", help="vývojová 70 % / testovací 30 % dnů")
+    c = sub.add_parser("compare", help="porovná všechny strategie (walk-forward)")
+    c.add_argument("--days", type=int, default=120)
+    c.add_argument("--refresh", action="store_true", help="znovu stáhnout historii")
     r = sub.add_parser("run", help="spustí agenta")
     r.add_argument("--once", action="store_true", help="jen jeden cyklus")
     k = sub.add_parser("kill", help="nouzové zastavení")
@@ -351,7 +390,7 @@ def main(argv: list[str] | None = None) -> int:
     handlers = {"check": cmd_check, "fetch": cmd_fetch, "backtest": cmd_backtest, "run": cmd_run,
                 "kill": cmd_kill, "resume": cmd_resume, "reset-halt": cmd_reset_halt,
                 "status": cmd_status, "report": cmd_report, "test-order": cmd_test_order,
-                "dashboard": cmd_dashboard, "init-start": cmd_init_start}
+                "dashboard": cmd_dashboard, "init-start": cmd_init_start, "compare": cmd_compare}
     try:
         return handlers[args.cmd](cfg, args)
     except ConfigError as exc:

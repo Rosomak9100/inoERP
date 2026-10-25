@@ -25,15 +25,24 @@ def utcnow() -> datetime:
 
 
 class LiveData:
-    def __init__(self, client: EtoroClient, interval: str, interval_minutes: int):
+    """Uzavřené svíčky z eToro. Stahuje znovu, až když se uzavřela další svíčka."""
+
+    def __init__(self, client: EtoroClient, interval: str, interval_minutes: int, count: int = 1000):
         self.client = client
         self.interval = interval
         self.step = timedelta(minutes=interval_minutes)
+        self.count = count
+        self._cache: dict[int, list[Candle]] = {}
 
     def closed_candles(self, instrument_id: int, now: datetime) -> list[Candle]:
-        candles = self.client.live_candles(instrument_id, self.interval, 300)
+        cached = self._cache.get(instrument_id)
+        if cached and cached[-1].time + 2 * self.step > now:
+            return cached  # další svíčka ještě není uzavřená
+        candles = self.client.live_candles(instrument_id, self.interval, self.count)
         # Rozpracovanou svíčku zahodit – strategie vidí jen uzavřené (žádný look-ahead).
-        return [c for c in candles if c.time + self.step <= now]
+        closed = [c for c in candles if c.time + self.step <= now]
+        self._cache[instrument_id] = closed
+        return closed
 
 
 class Agent:

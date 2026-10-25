@@ -26,6 +26,7 @@ def session_candles(candles: list[Candle]) -> list[Candle]:
 
 class Strategy:
     name = "base"
+    history_bars = 300  # kolik posledních svíček strategie potřebuje (backtest je jí předá)
 
     def entry(self, symbol: str, candles: list[Candle]) -> Signal | None:
         raise NotImplementedError
@@ -141,7 +142,91 @@ class OpeningRangeBreakout(Strategy):
         return None
 
 
-STRATEGIES = {VwapPullback.name: VwapPullback, OpeningRangeBreakout.name: OpeningRangeBreakout}
+def sessions(candles: list[Candle]) -> list[list[Candle]]:
+    """Rozdělí svíčky na seance (jen řádné obchodní hodiny), vzestupně."""
+    out: list[list[Candle]] = []
+    current_day = None
+    for c in candles:
+        et = market.to_et(c.time)
+        start, end = market.session_bounds(et.date())
+        if not (start <= et < end):
+            continue
+        if et.date() != current_day:
+            out.append([])
+            current_day = et.date()
+        out[-1].append(c)
+    return out
+
+
+class NoiseAreaMomentum(Strategy):
+    """Intradenní momentum podle Zarattini, Aziz & Barbon (2024), „Beat the Market“ (SPY).
+
+    Pásmo šumu = max(open dne, včerejší close) × (1 + σ), kde σ je průměrný absolutní pohyb
+    od otevření do stejné minuty dne za posledních `lookback_days` dní. Cena nad pásmem a nad
+    VWAP v kontrolním čase (každých 30 min) = nerovnováha poptávky → long. Výstup, když cena
+    spadne pod max(pásmo, VWAP), jinak na konci dne. Systém je zatím jen long, článek obchoduje
+    i short; výsledky proto nejsou přímo srovnatelné s článkem.
+    """
+
+    name = "noise_momentum"
+    history_bars = 1300  # ~16 seancí 5min svíček
+
+    def __init__(self, lookback_days: int = 14, min_days: int = 5, check_minutes: int = 30,
+                 reward_risk: float = 4.0):
+        self.lookback_days = lookback_days
+        self.min_days = min_days
+        self.check_minutes = check_minutes
+        self.reward_risk = reward_risk
+
+    def bands(self, candles: list[Candle]):
+        days = sessions(candles)
+        if len(days) < self.min_days + 1:
+            return None
+        today, prev = days[-1], days[-2]
+        k = len(today) - 1
+        moves = [abs(d[k].close / d[0].open - 1) for d in days[-1 - self.lookback_days:-1]
+                 if len(d) > k and d[0].open]
+        if len(moves) < self.min_days:
+            return None
+        sigma = sum(moves) / len(moves)
+        o, pc = today[0].open, prev[-1].close
+        return max(o, pc) * (1 + sigma), min(o, pc) * (1 - sigma), today
+
+    def _check_time(self, candles: list[Candle]) -> bool:
+        step = candles[-1].time - candles[-2].time
+        end = market.to_et(candles[-1].time + step)
+        start, _ = market.session_bounds(end.date())
+        return int((end - start).total_seconds() // 60) % self.check_minutes == 0
+
+    def entry(self, symbol: str, candles: list[Candle]) -> Signal | None:
+        if len(candles) < MIN_HISTORY or not self._check_time(candles):
+            return None
+        b = self.bands(candles)
+        a = ind.atr(candles, 14)[-1]
+        if b is None or a is None or a <= 0:
+            return None
+        upper, _, today = b
+        vw = ind.vwap(today)[-1]
+        last = candles[-1]
+        if not (last.close > upper and last.close > vw):
+            return None
+        entry = last.close
+        stop = _bounded_stop(entry, max(upper, vw), a)
+        return Signal(symbol, "long", entry, stop, entry + self.reward_risk * (entry - stop),
+                      f"nad pásmem šumu {upper:.2f} a VWAP {vw:.2f}", last.time)
+
+    def exit(self, position: Position, candles: list[Candle]) -> str | None:
+        b = self.bands(candles)
+        if b is None:
+            return None
+        upper, _, today = b
+        if candles[-1].close < max(upper, ind.vwap(today)[-1]):
+            return "návrat do pásma šumu / pod VWAP"
+        return None
+
+
+STRATEGIES = {VwapPullback.name: VwapPullback, OpeningRangeBreakout.name: OpeningRangeBreakout,
+              NoiseAreaMomentum.name: NoiseAreaMomentum}
 
 
 def make_strategy(name: str) -> Strategy:

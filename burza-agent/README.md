@@ -4,7 +4,7 @@ Dvě souběžné studie, každá s virtuálními **200 000 Kč** přepočtenými
 
 | | Studie A – technická | Studie B – zprávy + makro |
 |---|---|---|
-| Rozhoduje podle | cena a objem (VWAP pullback / opening range breakout) | stejný technický signál, který navíc posoudí podle zpráv, výsledků firem, makrodat, Fedu a tržního přehledu – **zdarma pevnými pravidly** (tón zpráv, „už v ceně“, pohyb trhu, VIX, Fed, výsledky); volitelně placeným Claude API |
+| Rozhoduje podle | cena a objem (VWAP pullback / opening range breakout / pásmo šumu – intradenní momentum) | stejný technický signál, který navíc posoudí podle zpráv, výsledků firem, makrodat, Fedu a tržního přehledu – **zdarma pevnými pravidly** (tón zpráv, „už v ceně“, pohyb trhu, VIX, Fed, výsledky); volitelně placeným Claude API |
 | Zdroje | eToro svíčky 1/5/15 min | + Finnhub (zprávy, kalendář výsledků), FRED (Fed funds, inflace, nezaměstnanost, zaměstnanost, výnosy, USD, ropa, VIX), kalendář FOMC |
 | Evidence | signály, odmítnuté signály, obchody | + každá zpráva (zdroj, vydavatel, čas publikace) a každé rozhodnutí AI se zdůvodněním |
 
@@ -57,6 +57,9 @@ Služby systemd: `deploy/burza.service` (pro Studii B zkopíruj a změň `--conf
 
 Výchozí `ai.provider = "pravidla"` je zdarma. Při `"api"` volá Claude jen u technického kandidáta,
 max. `max_calls_per_day` (výchozí 40) za den. Když posouzení selže, obchod se **neotevře** a důvod se zapíše.
+
+Rešerše strategií, zpráv a zdrojů: [docs/RESERSE.md](docs/RESERSE.md).
+Porovnání strategií na reálných datech: `6_BACKTEST.bat` (nebo `python -m burza compare`).
 
 ## Ochranné limity (pro každou studii zvlášť)
 
