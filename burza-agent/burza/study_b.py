@@ -21,6 +21,7 @@ class AiContextStrategy(Strategy):
         self.min_confidence = min_confidence
         self.max_calls_per_day = max_calls_per_day
         self.name = f"kontext+{base.name}"
+        self.history_bars = base.history_bars
         self.journal = None
         self.clock = lambda: datetime.now(timezone.utc)
 

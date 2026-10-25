@@ -9,7 +9,7 @@
   color-scheme: light;
   --page: #f9f9f7; --surface: #fcfcfb; --ink: #0b0b0b; --ink-2: #52514e; --muted: #898781;
   --grid: #e1e0d9; --axis: #c3c2b7; --border: rgba(11,11,11,0.10);
-  --series-1: #2a78d6; --series-2: #eb6834; --series-3: #1baf7a;
+  --series-1: #2a78d6; --series-2: #eb6834; --series-3: #1baf7a; --series-4: #eda100;
   --good: #006300; --critical: #d03b3b; --warning: #fab219;
 }
 @media (prefers-color-scheme: dark) {
@@ -17,14 +17,14 @@
     color-scheme: dark;
     --page: #0d0d0d; --surface: #1a1a19; --ink: #f0efec; --ink-2: #c3c2b7; --muted: #898781;
     --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10);
-    --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --good: #0ca30c;
+    --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500; --good: #0ca30c;
   }
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
   --page: #0d0d0d; --surface: #1a1a19; --ink: #f0efec; --ink-2: #c3c2b7; --muted: #898781;
   --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10);
-  --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --good: #0ca30c;
+  --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500; --good: #0ca30c;
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--page); color: var(--ink);
@@ -92,7 +92,7 @@ const pct = v => v == null ? "–" : (v > 0 ? "+" : "") + fmt(v) + " %";
 const signCls = v => v > 0 ? "pos" : v < 0 ? "neg" : "";
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
 const dt = s => s ? new Date(s).toLocaleString("cs-CZ", {dateStyle: "short", timeStyle: "short"}) : "–";
-const SERIES = ["var(--series-1)", "var(--series-2)", "var(--series-3)"];
+const SERIES = ["var(--series-1)", "var(--series-2)", "var(--series-3)", "var(--series-4)"];
 
 let data = null;
 let tab = (() => { try { return localStorage.getItem("burza-tab") || "0"; } catch { return "0"; } })();
@@ -115,7 +115,7 @@ function table(cols, rows, empty = "Zatím nic") {
 
 // Čárový graf v SVG s křížem a tooltipem. series: [{name, color, points:[{t: Date, v}]}]
 function lineChart(el, series, unit) {
-  const W = el.clientWidth || 800, H = 280, m = {l: 64, r: 96, t: 12, b: 28};
+  const W = el.clientWidth || 800, H = 280, m = {l: 64, r: 128, t: 12, b: 28};
   const all = series.flatMap(s => s.points);
   if (!all.length) { el.innerHTML = `<div class="empty">Zatím žádná data</div>`; return; }
   const t0 = Math.min(...all.map(p => p.t)), t1 = Math.max(...all.map(p => p.t)) || t0 + 1;
@@ -193,6 +193,10 @@ function studyView(s, idx) {
     ${tile("Sharpe (denní, p.a.)", fmt(m.sharpe))}
     ${tile("Náklady", usd(m.costs))}
     ${tile("Odmítnuté signály", s.rejected_count)}
+    ${tile("S&P 500 (SPY) – kup a drž", pct(s.bench_return_pct), "za stejné období",
+           signCls(s.bench_return_pct))}
+    ${tile("Nasdaq 100 (QQQ) – kup a drž", pct(s.bench2_return_pct), "za stejné období",
+           signCls(s.bench2_return_pct))}
   </div>
   <div class="card"><h2>Vývoj kapitálu (USD)</h2><div class="chart" id="eq${idx}"></div></div>
   <div class="grid2">
@@ -248,7 +252,7 @@ function methodologyCard(s) {
 function compareView() {
   const st = data.studies;
   let html = data.comparability.map(w => `<div class="warn">⚠ ${esc(w)}</div>`).join("");
-  html += `<div class="card"><h2>Kumulativní výnos (%) – studie vs. S&amp;P 500</h2><div class="legend" id="lg"></div><div class="chart" id="cmp"></div></div>`;
+  html += `<div class="card"><h2>Kumulativní výnos (%) – studie vs. kup a drž S&amp;P 500 a Nasdaq 100</h2><div class="legend" id="lg"></div><div class="chart" id="cmp"></div></div>`;
   html += `<div class="card"><h2>Přehled</h2>${table([
     {h: "Studie", f: s => esc(s.name)}, {h: "Strategie", f: s => esc(s.strategy)},
     {h: "Kapitál", num: 1, f: s => s.metrics ? usd(s.metrics.current) : "–"},
@@ -259,7 +263,9 @@ function compareView() {
     {h: "Profit factor", num: 1, f: s => s.metrics ? fmt(s.metrics.profit_factor) : "–"},
     {h: "Sharpe", num: 1, f: s => s.metrics ? fmt(s.metrics.sharpe) : "–"},
     {h: "Náklady", num: 1, f: s => s.metrics ? usd(s.metrics.costs) : "–"},
-    {h: "Odmítnuté", num: 1, f: s => s.rejected_count ?? "–"}], st)}</div>`;
+    {h: "Odmítnuté", num: 1, f: s => s.rejected_count ?? "–"},
+    {h: "S&P 500 stejně dlouho", num: 1, f: s => pct(s.bench_return_pct), cls: s => signCls(s.bench_return_pct)},
+    {h: "Nasdaq 100 stejně dlouho", num: 1, f: s => pct(s.bench2_return_pct), cls: s => signCls(s.bench2_return_pct)}], st)}</div>`;
   html += `<div class="grid2">${st.map(methodologyCard).join("")}</div>`;
   return html;
 }
@@ -282,9 +288,11 @@ function render() {
     $("#main").innerHTML = compareView();
     const series = data.studies.filter(s => s.series).map((s, k) => ({name: s.name, color: SERIES[data.studies.indexOf(s) % 2],
       points: s.series.map(p => ({t: Date.parse(p.t), v: p.ret_pct}))}));
-    const withBench = data.studies.find(s => s.series && s.series.some(p => p.bench_pct != null));
-    if (withBench) series.push({name: "S&P 500 (SPY)", color: SERIES[2],
-      points: withBench.series.filter(p => p.bench_pct != null).map(p => ({t: Date.parse(p.t), v: p.bench_pct}))});
+    for (const [key, label, color] of [["bench_pct", "S&P 500 (SPY)", SERIES[2]], ["bench2_pct", "Nasdaq 100 (QQQ)", SERIES[3]]]) {
+      const src = data.studies.find(s => s.series && s.series.some(p => p[key] != null));
+      if (src) series.push({name: label, color,
+        points: src.series.filter(p => p[key] != null).map(p => ({t: Date.parse(p.t), v: p[key]}))});
+    }
     $("#lg").innerHTML = series.map(s => `<span style="--c:${s.color}">${esc(s.name)}</span>`).join("");
     lineChart($("#cmp"), series, "%");
   }

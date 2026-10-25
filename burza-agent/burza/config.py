@@ -89,8 +89,10 @@ class Config:
     initial_capital_czk: float = 0.0       # společný start obou studií (např. 200 000 Kč)
     usdczk_start_rate: float = 0.0         # pevný kurz USD/CZK ke dni startu, stejný pro obě studie
     start_date: str = ""
-    benchmark_symbol: str = "SPY"
+    benchmark_symbol: str = "SPY"            # S&P 500
     benchmark_instrument_id: int = 3000
+    benchmark2_symbol: str = "QQQ"           # Nasdaq 100
+    benchmark2_instrument_id: int = 3006
     data_dir: str = "data"
     kill_file: str = "STOP"
     instruments: dict[str, int] = field(default_factory=dict)

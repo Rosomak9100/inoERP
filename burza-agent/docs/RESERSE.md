@@ -88,6 +88,23 @@ a 2024, AMZN a GOOGL 2022). Oprava: modul `splits.py` rozpozná skok odpovídaj�
 (±5 %) a přepočte starší ceny; simulace přepočte i otevřenou pozici, pokud split přijde během držení.
 Výsledky swing backtestu před opravou jsou neplatné.
 
+### Opravené výsledky swing (8 let, 26. 10. 2026) a volba strategie
+
+| Strategie | Vývoj 2018–2024 | Test 2024–2026 | Obchodů (test) | PF (test) | Max DD (test) | Sharpe (test) |
+|---|---|---|---|---|---|---|
+| trend_sma200 | +50,1 % | +20,3 % | 9 | 4,86 | 10,7 % | 0,94 |
+| momentum_12m | +48,4 % | +14,4 % | 3 | 6,23 | 11,6 % | 0,63 |
+| donchian_55_20 | +30,8 % | +16,6 % | 27 | 2,47 | 8,7 % | 0,76 |
+| rsi2_pullback | +18,0 % | +9,5 % | 179 | 1,45 | 3,8 % | 0,87 |
+| kup a drž (12 instrumentů) | +257 % | +47,5 % | – | – | 19,4 % | 1,10 |
+
+Všechny strategie byly kladné v obou obdobích; „kup a drž“ vybraných (zpětně úspěšných) firem měl vyšší
+výnos i Sharpe – srovnání je ovlivněné survivorship bias a tím, že strategie drží max. 3 pozice.
+t-stat (dny) < 2 → statisticky zatím neprokázané.
+**Volba (schválena uživatelem): obě studie `rsi2_pullback` ve swing režimu** – nejvíc obchodů (≈75/rok),
+takže srovnání Studie A (technika) a B (technika + zprávy) bude mít dost dat; nejmenší propad.
+Dashboard i backtest vždy ukazují i „kup a drž“ S&P 500 (SPY) a Nasdaq 100 (QQQ) za stejné období.
+
 ### Komodity
 
 Agent obchoduje komodity přes ETF na americké burze – **GLD** (zlato) a **USO** (ropa WTI). Mají stejné

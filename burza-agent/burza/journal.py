@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS ai_decisions (
 MIGRATIONS = [
     ("trades", "costs", "REAL"),
     ("equity", "benchmark", "REAL"),
+    ("equity", "benchmark2", "REAL"),
 ]
 
 
@@ -150,9 +151,9 @@ class Journal:
         return self.db.execute(q + " ORDER BY close_ts", args).fetchall()
 
     def equity_point(self, equity: float, cash: float, open_pnl: float,
-                     benchmark: float | None = None) -> None:
-        self.db.execute("INSERT INTO equity(ts, equity, cash, open_pnl, benchmark) VALUES (?,?,?,?,?)",
-                        (now_iso(), equity, cash, open_pnl, benchmark))
+                     benchmark: float | None = None, benchmark2: float | None = None) -> None:
+        self.db.execute("INSERT INTO equity(ts, equity, cash, open_pnl, benchmark, benchmark2)"
+                        " VALUES (?,?,?,?,?,?)", (now_iso(), equity, cash, open_pnl, benchmark, benchmark2))
         self.db.commit()
 
     def equity_series(self) -> list[sqlite3.Row]:

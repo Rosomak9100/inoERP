@@ -202,9 +202,17 @@ def cmd_compare_swing(cfg: Config, args) -> int:
             print(f"{name:18} {part:6} {m['vynos_pct']:>8.2f} {m['obchodu']:>8} {m['win_rate_pct']:>6} "
                   f"{str(m['profit_factor']):>5} {m['max_drawdown_pct']:>8.2f} {m['sharpe']:>7.2f} "
                   f"{str(m['t_stat_dni']):>7} {m['naklady_pct']:>8.2f} {extra}")
-    for part, bh in (("vyvoj", bh_dev), ("test", bh_test)):
-        print(f"{'kup a drž (vše)':18} {part:6} {bh['vynos_pct']:>8.2f} {'–':>8} {'–':>6} {'–':>5} "
-              f"{bh['max_drawdown_pct']:>8.2f} {bh['sharpe']:>7.2f}   (rovnoměrně všechny instrumenty, bez poplatků)")
+    dev_days = days[:int(len(days) * 0.7)]
+    bench_rows = [("kup a drž (vše)", bh_dev, bh_test, "rovnoměrně všechny instrumenty")]
+    for sym, label in ((cfg.benchmark_symbol, "S&P 500"), (cfg.benchmark2_symbol, "Nasdaq 100")):
+        if sym in data:
+            bench_rows.append((f"{label} ({sym})", buy_and_hold({sym: data[sym]}, dev_days),
+                               buy_and_hold({sym: data[sym]}, test_days), "jen držet index"))
+    print("-" * len(head))
+    for label, dev_bh, test_bh, note in bench_rows:
+        for part, bh in (("vyvoj", dev_bh), ("test", test_bh)):
+            print(f"{label:18} {part:6} {bh['vynos_pct']:>8.2f} {'–':>8} {'–':>6} {'–':>5} "
+                  f"{bh['max_drawdown_pct']:>8.2f} {bh['sharpe']:>7.2f}   ({note}, bez poplatků)")
     print()
     print("Jak číst: strategie dává smysl, když má v TEST kladný výnos, PF > 1.2 a lepší poměr výnosu a rizika")
     print("než 'kup a drž' (vyšší Sharpe nebo výrazně menší max DD). 't (dny)' > 2 = výsledek nejspíš není náhoda.")
@@ -266,6 +274,13 @@ def cmd_compare_intraday(cfg: Config, args) -> int:
             print(f"{name:18} {part:6} {m['vynos_pct']:>8.2f} {m['obchodu']:>8} {m['win_rate_pct']:>6} "
                   f"{str(m['profit_factor']):>5} {m['max_drawdown_pct']:>8.2f} {m['sharpe']:>7.2f} "
                   f"{str(m['t_stat']):>7} {extra}")
+    from .backtest_daily import buy_and_hold
+    print("-" * len(head))
+    for sym, label in ((cfg.benchmark_symbol, "S&P 500"), (cfg.benchmark2_symbol, "Nasdaq 100")):
+        if sym in data:
+            bh = buy_and_hold({sym: data[sym]}, test_days)
+            print(f"{(label + ' (' + sym + ')'):18} {'test':6} {bh['vynos_pct']:>8.2f}  – jen držet index stejně dlouho "
+                  f"(max DD {bh['max_drawdown_pct']:.2f} %, bez poplatků)")
     print()
     print("2) Kolik stojí poplatky (část TEST, se skutečnými náklady):")
     h2 = f"{'strategie':18} {'prům. pozice':>13} {'zisk/obchod před nákl.':>23} {'náklad/obchod':>14} {'náklady celkem':>15}"
@@ -512,6 +527,21 @@ def cmd_set_strategy(cfg: Config, args) -> int:
     return 0
 
 
+def cmd_new_experiment(cfg: Config, args) -> int:
+    """Čistý start experimentu: archivuje deníky studií a nastaví nový společný kurz a datum startu."""
+    stamp = utcnow().strftime("%Y%m%d-%H%M")
+    for path in args.configs:
+        c = load_config(path, validate=False)
+        db = c.db_path
+        if db.exists():
+            target = db.with_name(f"burza_archiv_{stamp}.db")
+            db.rename(target)
+            print(f"{path}: starý deník archivován → {target}")
+        (Path(c.data_dir) / "heartbeat").unlink(missing_ok=True)
+    args.force = True
+    return cmd_init_start(cfg, args)
+
+
 def cmd_dashboard(cfg: Config, args) -> int:
     from .dashboard import serve
     cfgs = [load_config(path, validate=False) for path in args.studies] if args.studies else [cfg]
@@ -557,6 +587,8 @@ def main(argv: list[str] | None = None) -> int:
     ss.add_argument("--configs", nargs="+", required=True)
     ss.add_argument("--horizon", choices=["intraday", "swing"], required=True)
     ss.add_argument("--strategy", required=True)
+    ne = sub.add_parser("new-experiment", help="čistý start studií (archiv deníků, nový kurz a datum)")
+    ne.add_argument("--configs", nargs="+", required=True)
     d = sub.add_parser("dashboard", help="webový dashboard obou studií")
     d.add_argument("--studies", nargs="+", help="configy studií, např. config_a.toml config_b.toml")
     d.add_argument("--host", default="127.0.0.1")
@@ -566,7 +598,8 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     try:
-        cfg = load_config(args.config, validate=args.cmd not in ("dashboard", "init-start", "sync-config", "set-strategy"))
+        cfg = load_config(args.config, validate=args.cmd not in ("dashboard", "init-start", "sync-config", "set-strategy",
+                                                                    "new-experiment"))
     except ConfigError as exc:
         print("Chyba konfigurace:", exc)
         return 2
@@ -574,7 +607,8 @@ def main(argv: list[str] | None = None) -> int:
                 "kill": cmd_kill, "resume": cmd_resume, "reset-halt": cmd_reset_halt,
                 "status": cmd_status, "report": cmd_report, "test-order": cmd_test_order,
                 "dashboard": cmd_dashboard, "init-start": cmd_init_start, "compare": cmd_compare,
-                "sync-config": cmd_sync_config, "set-strategy": cmd_set_strategy}
+                "sync-config": cmd_sync_config, "set-strategy": cmd_set_strategy,
+                "new-experiment": cmd_new_experiment}
     try:
         return handlers[args.cmd](cfg, args)
     except ConfigError as exc:

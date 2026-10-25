@@ -251,7 +251,7 @@ class Agent:
         self._reconcile(now)
         open_pnl = sum(p.unrealized_pnl for p in account.positions)
         self.journal.equity_point(account.equity, account.cash, open_pnl,
-                                  prices.get(self.cfg.benchmark_symbol))
+                                  prices.get(self.cfg.benchmark_symbol), prices.get(self.cfg.benchmark2_symbol))
 
         for action in self.risk.check_limits(st, account.equity):
             if action == "halt":
@@ -337,14 +337,15 @@ class Agent:
                 self._place(sig, decision, iid, st)
                 account = self.broker.account()
 
-        bench = self.cfg.benchmark_symbol
-        if bench and bench not in self.cfg.instruments:
-            try:
-                bc = self.data.closed_candles(self.cfg.benchmark_instrument_id, now)
-                if bc:
-                    prices[bench] = bc[-1].close
-            except EtoroError:
-                pass
+        for bench, bench_id in ((self.cfg.benchmark_symbol, self.cfg.benchmark_instrument_id),
+                                (self.cfg.benchmark2_symbol, self.cfg.benchmark2_instrument_id)):
+            if bench and bench not in self.cfg.instruments:
+                try:
+                    bc = self.data.closed_candles(bench_id, now)
+                    if bc:
+                        prices[bench] = bc[-1].close
+                except EtoroError:
+                    pass
         self.journal.set_state("last_bar", last_bars)
         self.journal.set_state("last_prices", prices)
         self._save(st)

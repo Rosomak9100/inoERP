@@ -11,6 +11,7 @@ Stejné soubory jsou i ve složce `burza-agent` (např. `C:\Users\<tvé jméno>\
 | `3_ZASTAVIT.bat` | nouzově zastaví agenty (zavřou své pozice) |
 | `4_AKTUALIZOVAT.bat` | stáhne novou verzi, kterou připraví Claude |
 | `5_DASHBOARD.bat` | znovu otevře přehled v prohlížeči |
+| `7_PREPNOUT_NA_SWING.bat` | přepne obě studie na swing strategii RSI(2) a založí čistý start experimentu |
 | `6_BACKTEST.bat` | porovná intradenní (1 rok) i swing strategie (8 let) na reálných datech – výsledek pošli Claudovi |
 
 ---

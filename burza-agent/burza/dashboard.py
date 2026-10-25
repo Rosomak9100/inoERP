@@ -104,7 +104,7 @@ def study_snapshot(cfg: Config) -> dict:
     try:
         risk = _state(db, f"risk:{cfg.mode}", {}) or {}
         initial = risk.get("initial_capital") or cfg.initial_capital_usd
-        equity = _rows(db, "SELECT ts, equity, cash, open_pnl, benchmark FROM equity ORDER BY ts")
+        equity = _rows(db, "SELECT * FROM equity ORDER BY ts")
         closed = _rows(db, "SELECT * FROM trades WHERE close_ts IS NOT NULL ORDER BY close_ts")
         open_tr = _rows(db, "SELECT * FROM trades WHERE close_ts IS NULL AND mode=?", (cfg.mode,))
         prices = _state(db, "last_prices", {}) or {}
@@ -117,10 +117,15 @@ def study_snapshot(cfg: Config) -> dict:
         if hb.exists():
             hb_age = (datetime.now(timezone.utc) - datetime.fromisoformat(hb.read_text())).total_seconds()
         bench = next((e["benchmark"] for e in equity if e.get("benchmark")), None)
+        bench2 = next((e["benchmark2"] for e in equity if e.get("benchmark2")), None)
         series = [{"t": e["ts"], "equity": round(e["equity"], 2),
                    "ret_pct": round((e["equity"] / initial - 1) * 100, 4) if initial else 0,
                    "bench_pct": round((e["benchmark"] / bench - 1) * 100, 4)
-                   if bench and e.get("benchmark") else None} for e in equity]
+                   if bench and e.get("benchmark") else None,
+                   "bench2_pct": round((e["benchmark2"] / bench2 - 1) * 100, 4)
+                   if bench2 and e.get("benchmark2") else None} for e in equity]
+        last_b = [p for p in series if p["bench_pct"] is not None]
+        last_b2 = [p for p in series if p["bench2_pct"] is not None]
         return {
             **base,
             "running": hb_age is not None and hb_age < 300,
@@ -128,6 +133,9 @@ def study_snapshot(cfg: Config) -> dict:
             "kill_switch": Path(cfg.kill_file).exists(),
             "risk": risk,
             "metrics": metrics_from(initial or 0, equity, closed),
+            # „kup a drž“ indexu za stejné období jako studie
+            "bench_return_pct": last_b[-1]["bench_pct"] if last_b else None,
+            "bench2_return_pct": last_b2[-1]["bench2_pct"] if last_b2 else None,
             "series": _downsample(series),
             "open_positions": open_tr,
             "trades": closed[-200:][::-1],
@@ -165,7 +173,7 @@ def methodology(cfg: Config) -> dict:
         "ocenovani": "equity = hotovost + tržní hodnota pozic (poslední close / eToro PnL)",
         "riziko": f"{cfg.risk.risk_per_trade_pct} % na obchod, denní limit {cfg.risk.max_daily_loss_pct} %, "
                   f"celkový {cfg.risk.max_drawdown_pct} %, max {cfg.risk.max_open_positions} pozice",
-        "benchmark": f"{cfg.benchmark_symbol} (S&P 500 ETF)",
+        "benchmark": f"kup a drž {cfg.benchmark_symbol} (S&P 500) a {cfg.benchmark2_symbol} (Nasdaq 100) za stejné období",
     }
 
 
