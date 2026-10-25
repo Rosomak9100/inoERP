@@ -148,7 +148,7 @@ class BacktestTests(unittest.TestCase):
         """Regrese: pozice SPY za 19 USD se při limitu „prodala“ za 2354 USD (cena NVDA)."""
         from burza.backtest import flatten_all
         from burza.config import CostConfig
-        b = PaperBroker(100_000, CostConfig(0, 0, 0))
+        b = PaperBroker(100_000, CostConfig.zero())
         b.open_long(symbol="SPY", instrument_id=1, amount_usd=1_000, stop=1, target=1e9, client_ref="a", price_hint=19.0)
         b.open_long(symbol="NVDA", instrument_id=2, amount_usd=1_000, stop=1, target=1e9, client_ref="b", price_hint=2354.0)
         t = utc(2026, 10, 26, 15, 0)

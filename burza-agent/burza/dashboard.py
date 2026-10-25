@@ -157,9 +157,9 @@ def methodology(cfg: Config) -> dict:
         "kapital_czk": cfg.initial_capital_czk or None,
         "kurz_usdczk": cfg.usdczk_start_rate or None,
         "kapital_usd": cfg.initial_capital_usd or None,
-        "naklady": f"spread {cfg.costs.spread_bps} bps, skluz {cfg.costs.slippage_bps} bps, "
-                   f"poplatek {cfg.costs.commission_usd} USD/strana" + (" (simulace)" if cfg.mode == "paper"
-                                                                       else " (skutečné poplatky eToro)"),
+        "naklady": ("poplatek eToro za stranu: " + ", ".join(f"{sym} {cfg.costs.fee(sym):g} USD" for sym in cfg.instruments)
+                    + f"; spread podle instrumentu; skluz {cfg.costs.slippage_bps} bps"
+                    + (" (simulace)" if cfg.mode == "paper" else " (skutečné poplatky eToro)")),
         "ocenovani": "equity = hotovost + tržní hodnota pozic (poslední close / eToro PnL)",
         "riziko": f"{cfg.risk.risk_per_trade_pct} % na obchod, denní limit {cfg.risk.max_daily_loss_pct} %, "
                   f"celkový {cfg.risk.max_drawdown_pct} %, max {cfg.risk.max_open_positions} pozice",

@@ -150,7 +150,7 @@ def cmd_compare(cfg: Config, args) -> int:
     days = sorted({d for c in data.values() for d in group_by_day(c)})
     test_days = days[int(len(days) * 0.7):]
     gross_cfg = copy.copy(cfg)
-    gross_cfg.costs = CostConfig(0.0, 0.0, 0.0)
+    gross_cfg.costs = CostConfig.zero()
 
     rows = []
     for name in STRATEGIES:
@@ -166,8 +166,9 @@ def cmd_compare(cfg: Config, args) -> int:
                                 "test_bez_nakladu": gross, "test_po_instrumentech": per_sym},
                                ensure_ascii=False) + "\n")
     print()
-    print(f"1) Výsledky (náklady: spread {cfg.costs.spread_bps} bps, skluz {cfg.costs.slippage_bps} bps). "
-          "Rozhoduje část TEST – data, na kterých se nic neladilo.")
+    fees = ", ".join(f"{s} {cfg.costs.fee(s):g}" for s in data)
+    print(f"1) Výsledky se skutečnými náklady eToro (poplatek USD za nákup i prodej: {fees}; spread podle")
+    print(f"   instrumentu, skluz {cfg.costs.slippage_bps} bps). Rozhoduje část TEST – data, na kterých se nic neladilo.")
     head = (f"{'strategie':18} {'část':6} {'výnos %':>8} {'obchodů':>8} {'win %':>6} {'PF':>5} "
             f"{'max DD %':>8} {'Sharpe':>7} {'t-stat':>7} {'bez nákl.%':>10}")
     print(head)

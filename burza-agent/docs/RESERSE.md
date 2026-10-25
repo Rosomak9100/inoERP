@@ -39,6 +39,28 @@ Další test: 1 rok dat, 4 strategie, 6 instrumentů vč. komodit, ukazatel t-st
 Opraveno: backtest při denním limitu zavíral pozice cenou jiného symbolu; živý agent nově
 používá jen svíčky řádné seance (stejně jako backtest).
 
+### Výsledky ročního backtestu a skutečné náklady eToro (25. 10. 2026)
+
+Rok dat, 6 instrumentů, původní odhad nákladů 2 bps spread + 1 bps skluz: žádná strategie neprošla.
+Bez nákladů: vwap_pullback −0,56 % (žádná výhoda), orb +1,37 %, noise_momentum +1,45 %,
+intraday_momentum +0,49 % – malá hrubá výhoda, kterou náklady sežerou.
+
+Skutečné náklady eToro (what-if API, nákup za 2000 USD, 23. 10. 2026):
+
+| Instrument | Poplatek za obchod | Spread |
+|---|---|---|
+| SPY, QQQ, GLD, USO (ETF jako CFD) | 3 USD | 0,05–0,24 USD (0,25–1,2 bps) |
+| AAPL, NVDA (skutečné akcie) | 1 USD | 0,17–0,19 USD (~0,9 bps) |
+
+**Pevný poplatek je hlavní náklad.** Při pozici ~2000 USD a poplatku i při prodeji stojí obchod s ETF
+tam a zpět ~0,3 %, s akcií ~0,1 % – víc, než intradenní strategie průměrně vydělají na obchod.
+Poplatek je pevný, takže jeho váha klesá s velikostí pozice a s počtem obchodů.
+Důsledek: s kapitálem 200 000 Kč mají šanci jen strategie s **méně obchody a většími pohyby**
+(držení hodin až dní). Poplatek za držení přes noc je u pozic bez páky podle API nulový.
+Kandidáti (vyžadují schválení změny metodiky – zadání počítá primárně s intradenním obchodováním):
+trendové / momentum strategie na denních svíčkách pro ETF (SPY, QQQ, GLD, USO), např. filtr 200denního
+průměru nebo 12měsíční momentum (Moskowitz, Ooi & Pedersen 2012, *Time series momentum*).
+
 ### Komodity
 
 Agent obchoduje komodity přes ETF na americké burze – **GLD** (zlato) a **USO** (ropa WTI). Mají stejné

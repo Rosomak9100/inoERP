@@ -95,7 +95,7 @@ class PaperBrokerTests(unittest.TestCase):
         self.assertAlmostEqual(b.cash, 1_000 + out.raw["pnl"])
 
     def test_gap_through_stop_and_conservative_both(self):
-        b = PaperBroker(1_000, CostConfig(0, 0, 0))
+        b = PaperBroker(1_000, CostConfig.zero())
         b.open_long(symbol="SPY", instrument_id=1, amount_usd=100, stop=95, target=110,
                     client_ref="x", price_hint=100)
         t = utc(2026, 10, 26, 15, 0)
@@ -215,3 +215,21 @@ class LastHalfHourTests(unittest.TestCase):
         self.assertTrue(market.in_session(utc(2026, 10, 26, 14, 0)))
         self.assertFalse(market.in_session(utc(2026, 10, 26, 12, 0)))   # pre-market
         self.assertFalse(market.in_session(utc(2026, 10, 26, 21, 0)))   # after-hours
+
+
+class EtoroCostTests(unittest.TestCase):
+    def test_real_fees_per_symbol(self):
+        b = PaperBroker(10_000, CostConfig())
+        for sym, fee in (("SPY", 3.0), ("AAPL", 1.0)):
+            res = b.open_long(symbol=sym, instrument_id=1, amount_usd=2_000, stop=1, target=1e9,
+                              client_ref=sym, price_hint=100)
+            out = b.close(b.positions[res.position_ids[0]], reason="t", price_hint=100)
+            # stejná cena tam i zpět → ztráta = 2× poplatek + spread + skluz
+            self.assertLess(out.raw["pnl"], -2 * fee)
+            self.assertGreater(out.raw["pnl"], -2 * fee - 2)
+            self.assertAlmostEqual(out.raw["costs"], -out.raw["pnl"], places=3)
+
+    def test_position_smaller_than_fees_rejected(self):
+        b = PaperBroker(10_000, CostConfig())
+        res = b.open_long(symbol="SPY", instrument_id=1, amount_usd=5, stop=1, target=1e9, client_ref="x", price_hint=100)
+        self.assertFalse(res.ok)

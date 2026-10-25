@@ -86,8 +86,8 @@ class PaperBroker(Broker):
             b.positions[p["position_id"]] = Position(**p)
         return b
 
-    def _half_cost(self) -> float:
-        return (self.costs.spread_bps / 2 + self.costs.slippage_bps) / 10_000
+    def _half_cost(self, symbol: str) -> float:
+        return (self.costs.spread(symbol) / 2 + self.costs.slippage_bps) / 10_000
 
     def account(self) -> Account:
         positions = []
@@ -101,27 +101,31 @@ class PaperBroker(Broker):
 
     def open_long(self, *, symbol, instrument_id, amount_usd, stop, target, client_ref,
                   price_hint, when: datetime | None = None) -> OrderResult:
-        fill = price_hint * (1 + self._half_cost())
+        fill = price_hint * (1 + self._half_cost(symbol))
+        fee = self.costs.fee(symbol)
         spend = amount_usd
         if spend > self.cash:
             return OrderResult(False, client_ref, "rejected", error="nedostatek hotovosti")
-        units = (spend - self.costs.commission_usd) / fill
+        if spend <= fee * 2:
+            return OrderResult(False, client_ref, "rejected", error="pozice menší než poplatky")
+        units = (spend - fee) / fill
         self.cash -= spend
         pid = f"P{self.next_id}"
         self.next_id += 1
         self.positions[pid] = Position(pid, symbol, instrument_id, units, fill, stop, target,
                                        when or datetime.now(timezone.utc), 0.0, spend)
         # náklady vstupu: commission + rozdíl mezi fill a midem
-        self.entry_costs[pid] = self.costs.commission_usd + units * (fill - price_hint)
+        self.entry_costs[pid] = fee + units * (fill - price_hint)
         self.last_price.setdefault(symbol, price_hint)
         return OrderResult(True, client_ref, "filled", [pid], fill, units)
 
     def _close_at(self, p: Position, price: float, reason: str, when: datetime) -> ClosedFill:
-        exit_px = price * (1 - self._half_cost())
-        proceeds = p.units * exit_px - self.costs.commission_usd
+        exit_px = price * (1 - self._half_cost(p.symbol))
+        fee = self.costs.fee(p.symbol)
+        proceeds = p.units * exit_px - fee
         self.cash += proceeds
         del self.positions[p.position_id]
-        costs = self.entry_costs.pop(p.position_id, 0.0) + self.costs.commission_usd + p.units * (price - exit_px)
+        costs = self.entry_costs.pop(p.position_id, 0.0) + fee + p.units * (price - exit_px)
         return ClosedFill(p, exit_px, proceeds - p.invested, reason, when, round(costs, 4))
 
     def close(self, position: Position, *, reason: str, price_hint: float | None,

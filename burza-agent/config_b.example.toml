@@ -54,9 +54,12 @@ no_entry_last_minutes = 30    # posledních N minut nevstupovat
 flatten_minutes_before_close = 10
 stale_data_seconds = 900      # data starší než tohle = zastaralá, neobchodovat
 
-[costs]                       # pro paper režim a backtest
+[costs]                       # pro paper režim a backtest – stejné pro obě studie
+# Skutečné poplatky a spready eToro jsou vestavěné (změřeno 23. 10. 2026):
+#   poplatek za nákup i prodej: ETF (SPY, QQQ, GLD, USO) 3 USD, akcie (AAPL, NVDA) 1 USD
+# Níže jen výchozí hodnoty pro instrumenty, které v tomto seznamu nejsou.
 spread_bps = 2.0              # polovina se platí při vstupu, polovina při výstupu
-commission_usd = 0.0          # za jednu stranu obchodu
+commission_usd = 3.0          # za jednu stranu obchodu
 slippage_bps = 1.0
 
 # Instrumenty: symbol = eToro instrumentId (ověřeno 24. 10. 2026)

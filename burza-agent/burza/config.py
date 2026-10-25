@@ -33,11 +33,30 @@ class SessionConfig:
     stale_data_seconds: int = 900
 
 
+# Skutečné náklady eToro změřené přes API (what-if náklady pro nákup za 2000 USD, 23. 10. 2026).
+# Poplatek za obchod (transactionFee) je pevný v USD a počítá se pro nákup i prodej (prodej z API
+# nejde ověřit předem – předpoklad je opatrný). Spread v bps = spread / cena × 10 000.
+ETORO_FEE_USD = {"SPY": 3.0, "QQQ": 3.0, "GLD": 3.0, "USO": 3.0, "AAPL": 1.0, "NVDA": 1.0}
+ETORO_SPREAD_BPS = {"SPY": 0.25, "QQQ": 0.3, "GLD": 0.55, "USO": 1.2, "AAPL": 0.85, "NVDA": 0.95}
+
+
 @dataclass
 class CostConfig:
-    spread_bps: float = 2.0
-    commission_usd: float = 0.0
+    spread_bps: float = 2.0        # pro instrumenty, které nejsou v spread_bps_by_symbol
+    commission_usd: float = 0.0    # poplatek za stranu pro instrumenty mimo fee_usd_by_symbol
     slippage_bps: float = 1.0
+    fee_usd_by_symbol: dict[str, float] = field(default_factory=lambda: dict(ETORO_FEE_USD))
+    spread_bps_by_symbol: dict[str, float] = field(default_factory=lambda: dict(ETORO_SPREAD_BPS))
+
+    def fee(self, symbol: str) -> float:
+        return float(self.fee_usd_by_symbol.get(symbol, self.commission_usd))
+
+    def spread(self, symbol: str) -> float:
+        return float(self.spread_bps_by_symbol.get(symbol, self.spread_bps))
+
+    @classmethod
+    def zero(cls) -> "CostConfig":
+        return cls(0.0, 0.0, 0.0, {}, {})
 
 
 @dataclass
