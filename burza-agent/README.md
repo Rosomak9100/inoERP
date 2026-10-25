@@ -69,6 +69,9 @@ Jak by si zvolená swing strategie vedla v minulosti proti držení S&P 500 (SPY
 `8_HISTORIE.bat` (nebo `python -m burza history-report`). Vytvoří `data_a/historie.html` – graf hodnoty
 200 000 Kč v čase, výnos po letech, max. propad, Sharpe a srovnání s ostatními swing strategiemi
 (skutečné poplatky eToro, data upravená o splity, prvních 210 dní slouží jen k zahřátí indikátorů).
+Obsahuje i výhled na 3 roky: 1000× block bootstrap (21denní úseky) skutečných denních výnosů strategie
+a obou indexů se stejnými dny – medián, 10./90. percentil, šance na ztrátu a šance porazit index.
+Dashboard report zobrazuje na záložce *Minulost*.
 
 ## Ochranné limity (pro každou studii zvlášť)
 

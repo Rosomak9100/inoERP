@@ -214,3 +214,20 @@ class HistoryReportTests(unittest.TestCase):
         data = {"SPY": normalize_daily(etoro_daily(days, [100 + i for i in range(100)]))}
         with self.assertRaises(ValueError):
             build_history(config(), data, "rsi2_pullback")
+
+    def test_projection(self):
+        from burza.history_report import project
+        days = trading_days(date(2023, 1, 3), 300)
+        steady = [(d, 100 * 1.001 ** i) for i, d in enumerate(days)]                 # roste každý den stejně
+        wild = [(d, 100 * (1.03 if i % 2 else 0.98) ** (i % 7)) for i, d in enumerate(days)]
+        rep = project({"A": steady, "B": wild}, 200_000, years=1, paths=200)
+        a = rep["summary"]["A"]
+        self.assertAlmostEqual(a["p50"], 200_000 * 1.001 ** 252, delta=2)   # bez kolísání = jediný možný výsledek
+        self.assertEqual(a["p10"], a["p90"])
+        self.assertEqual(a["sance_ztraty_pct"], 0)
+        b = rep["summary"]["B"]
+        self.assertLessEqual(b["p10"], b["p50"])
+        self.assertLessEqual(b["p50"], b["p90"])
+        self.assertEqual(rep["lines"]["A"][0], [str(days[-1]), 200_000, 200_000, 200_000])
+        self.assertEqual(rep, project({"A": steady, "B": wild}, 200_000, years=1, paths=200))   # opakovatelné
+        self.assertGreater(rep["lines"]["A"][1][0], str(days[-1]))                             # budoucí data

@@ -10,7 +10,8 @@ from __future__ import annotations
 import copy
 import json
 import math
-from datetime import date
+import random
+from datetime import date, timedelta
 from pathlib import Path
 
 from . import market
@@ -21,6 +22,10 @@ from .strategy import make_strategy
 from .strategy_daily import DAILY_STRATEGIES
 
 WARMUP_DAYS = 210   # SMA200 potřebuje historii – srovnání začíná, až strategie může obchodovat
+PROJ_YEARS = 3      # výhled do budoucna
+PROJ_PATHS = 1000   # počet simulovaných budoucností
+PROJ_BLOCK = 21     # skládá se po celých „měsících“ skutečných dní (zachová série růstů a poklesů)
+PROJ_STEP = 5       # do grafu se ukládá každý 5. den
 
 
 def _stats(values: list[tuple[date, float]]) -> dict:
@@ -61,6 +66,72 @@ def _hold(candles: list[Candle], days: list[date], start_value: float) -> list[t
         last = closes.get(d, last)
         out.append((d, start_value * last / first))
     return out
+
+
+def _future_days(after: date, n: int) -> list[date]:
+    out, d = [], after
+    while len(out) < n:
+        d += timedelta(days=1)
+        if market.is_trading_day(d):
+            out.append(d)
+    return out
+
+
+def _q(sorted_vals: list[float], q: float) -> float:
+    return sorted_vals[round(q * (len(sorted_vals) - 1))]
+
+
+def project(lines: dict[str, list[tuple[date, float]]], start_value: float, years: int = PROJ_YEARS,
+            paths: int = PROJ_PATHS, block: int = PROJ_BLOCK, seed: int = 7) -> dict:
+    """Výhled: tisíckrát náhodně poskládá skutečné historické úseky (block bootstrap) do budoucnosti.
+
+    Všechny řady berou v jedné simulaci stejné historické dny, takže zůstane zachovaný vztah strategie
+    a indexů (krach v indexu = stejné dny i pro strategii). Není to předpověď, jen rozpětí toho,
+    co by se stalo, kdyby se budoucnost skládala z kousků minulosti.
+    """
+    names = list(lines)
+    rets = [[b / a - 1 for (_, a), (_, b) in zip(series, series[1:])] for series in lines.values()]
+    n = min(len(r) for r in rets)
+    block = max(1, min(block, n))
+    horizon = round(252 * years)
+    marks = [d for d in range(1, horizon + 1) if d % PROJ_STEP == 0 or d == horizon]
+    snaps = [[[] for _ in marks] for _ in names]
+    rng = random.Random(seed)
+    for _ in range(paths):
+        idx: list[int] = []
+        while len(idx) < horizon:
+            s0 = rng.randrange(n - block + 1)
+            idx.extend(range(s0, s0 + block))
+        for j, r in enumerate(rets):
+            v, mi = start_value, 0
+            for d, k in enumerate(idx[:horizon], 1):
+                v *= 1 + r[k]
+                if d == marks[mi]:
+                    snaps[j][mi].append(v)
+                    mi += 1
+                    if mi == len(marks):
+                        break
+    end = lines[names[0]][-1][0]
+    dates = _future_days(end, horizon)
+    out_lines, summary = {}, {}
+    finals = {name: snaps[j][-1] for j, name in enumerate(names)}
+    for j, name in enumerate(names):
+        pts = [[str(end), start_value, start_value, start_value]]
+        for mi, d in enumerate(marks):
+            vals = sorted(snaps[j][mi])
+            pts.append([str(dates[d - 1]), round(_q(vals, .1), 0), round(_q(vals, .5), 0), round(_q(vals, .9), 0)])
+        out_lines[name] = pts
+        fin = sorted(finals[name])
+        med = _q(fin, .5)
+        summary[name] = {
+            "p10": round(_q(fin, .1), 0), "p50": round(med, 0), "p90": round(_q(fin, .9), 0),
+            "p50_rocne_pct": round(((med / start_value) ** (1 / years) - 1) * 100, 2),
+            "sance_ztraty_pct": round(sum(v < start_value for v in fin) / paths * 100, 1),
+            "porazi": {other: round(sum(a > b for a, b in zip(finals[name], finals[other])) / paths * 100, 1)
+                       for other in names if other != name},
+        }
+    return {"roky": years, "cest": paths, "blok": block, "od": str(end), "start_kc": round(start_value, 0),
+            "lines": out_lines, "summary": summary}
 
 
 def build_history(cfg: Config, data: dict[str, list[Candle]], strategy_name: str) -> dict:
@@ -104,6 +175,7 @@ def build_history(cfg: Config, data: dict[str, list[Candle]], strategy_name: str
         "lines": {name: [[str(d), round(v, 2)] for d, v in series] for name, series in lines.items()},
         "summary": summary,
         "others": others,
+        "vyhled": project(lines, start_czk),
     }
 
 
@@ -118,7 +190,7 @@ TEMPLATE = """<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Historické srovnání</title>
+<title>Historie a výhled</title>
 <style>
 :root { color-scheme: light; --page:#f9f9f7; --surface:#fcfcfb; --ink:#0b0b0b; --ink-2:#52514e; --muted:#898781;
   --grid:#e1e0d9; --axis:#c3c2b7; --border:rgba(11,11,11,.10); --series-1:#2a78d6; --series-2:#eb6834;
@@ -160,6 +232,9 @@ td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; }
   <div class="meta" id="meta"></div>
   <div class="card"><h2>Hodnota 200 000 Kč v čase</h2><div class="legend" id="lg"></div><div class="chart" id="ch"></div></div>
   <div class="card"><h2>Souhrn</h2><div id="sum"></div></div>
+  <div class="card"><h2 id="vh-title">Výhled na další roky – simulace z historie</h2>
+    <div class="note" id="vh-note"></div><div class="legend" id="vlg"></div><div class="chart" id="vch"></div>
+    <div id="vsum"></div></div>
   <div class="card"><h2>Výnos po jednotlivých letech</h2><div id="years"></div></div>
   <div class="card"><h2>Ostatní swing strategie (pro srovnání)</h2><div id="others"></div></div>
   <div class="card note"><h2>Jak to číst</h2><ul>
@@ -168,6 +243,8 @@ td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; }
     <li>Hodnoty v Kč jsou při pevném startovním kurzu; skutečný pohyb kurzu USD/CZK by výsledky posunul.</li>
     <li>Studii B (filtr zpráv) zpětně otestovat nejde – chybí archiv historických zpráv. Report ukazuje technický základ obou studií.</li>
     <li>Velké firmy v seznamu jsou vybrané zpětně (dnes úspěšné) – minulé výsledky to nadhodnocuje. Minulost nezaručuje budoucnost.</li>
+    <li>Výhled není předpověď. Budoucnost se jen poskládá z kousků minulosti – události, které v historii nebyly
+      (jiný typ krize, změna sazeb, konec růstu velkých technologických firem), simulace nezná.</li>
   </ul></div>
 </main>
 <script>
@@ -179,7 +256,29 @@ const names = Object.keys(R.lines);
 const colors = [SERIES[0], SERIES[2], SERIES[3]];
 const series = names.map((n, i) => ({name: n, short: n.split(" (")[0].replace(/^Strategie .*/, "Strategie"), color: colors[i % 3], points: R.lines[n].map(([d, v]) => ({t: Date.parse(d), v}))}));
 $("#lg").innerHTML = series.map(s => `<span style="--c:${s.color}">${esc(s.name)}</span>`).join("");
-lineChart($("#ch"), series, "Kč");
+lineChart($("#ch"), series, "Kč", {dateOnly: true});
+const V = R.vyhled;
+$("#vh-title").textContent = `Výhled na další ${V.roky} roky – simulace z historie`;
+$("#vh-note").innerHTML = `<p>Kdybys ${new Date(V.od).toLocaleDateString("cs-CZ")} vložil ${kc(V.start_kc)}: ${V.cest}× jsme náhodně poskládali skutečné
+  ${V.blok}denní úseky z let ${R.od.slice(0, 4)}–${R.do.slice(0, 4)} do ${V.roky} let dopředu (pro strategii i indexy stejné dny).
+  Čára je <b>střední</b> výsledek, plocha je rozpětí, do kterého padlo 8 z 10 simulací.</p>`;
+const vs = names.map((n, i) => {
+  const L = V.lines[n];
+  return {name: n, short: series[i].short, color: series[i].color,
+    points: L.map(([d, , m]) => ({t: Date.parse(d), v: m})),
+    band: L.map(([d, lo, , hi]) => ({t: Date.parse(d), lo, hi}))};
+});
+$("#vlg").innerHTML = vs.map(s => `<span style="--c:${s.color}">${esc(s.name)}</span>`).join("");
+lineChart($("#vch"), vs, "Kč", {dateOnly: true});
+const beat = (n, other) => other && other !== n ? fmt(V.summary[n].porazi[other], 0) + " %" : "–";
+$("#vsum").innerHTML = `<div class="table-wrap"><table><tr><th>Za ${V.roky} roky</th>
+  <th class="num">Pesimisticky<br><small>(horší jen 1 z 10)</small></th><th class="num">Střed</th>
+  <th class="num">Optimisticky<br><small>(lepší jen 1 z 10)</small></th><th class="num">Střed ročně</th>
+  <th class="num">Šance na ztrátu</th><th class="num">Šance porazit<br>S&amp;P 500</th><th class="num">Šance porazit<br>Nasdaq 100</th></tr>
+  ${names.map(n => { const m = V.summary[n]; return `<tr><td>${esc(n)}</td><td class="num">${kc(m.p10)}</td>
+    <td class="num"><b>${kc(m.p50)}</b></td><td class="num">${kc(m.p90)}</td><td class="num">${pct(m.p50_rocne_pct)}</td>
+    <td class="num">${fmt(m.sance_ztraty_pct, 0)} %</td><td class="num">${beat(n, names[1])}</td><td class="num">${beat(n, names[2])}</td></tr>`;}).join("")}
+  </table></div>`;
 const row = (n, m) => `<tr><td>${esc(n)}</td><td class="num">${kc(m.konec)}</td>
   <td class="num ${signCls(m.vynos_pct)}">${pct(m.vynos_pct)}</td><td class="num">${pct(m.rocne_pct)}</td>
   <td class="num">${pct(-m.max_dd_pct)}</td><td class="num">${fmt(m.sharpe)}</td>

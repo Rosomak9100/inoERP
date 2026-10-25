@@ -180,9 +180,17 @@ def cmd_history_report(cfg: Config, args) -> int:
         return 1
     out = Path(cfg.data_dir) / "historie.html"
     out.write_text(render_html(report), encoding="utf-8")
+    def kc(v):
+        return f"{v:,.0f} Kč".replace(",", " ")
+
     for label, m in report["summary"].items():
-        print(f"  {label:40} {m['konec']:>12,.0f} Kč  ({m['vynos_pct']:+.1f} %, ročně {m['rocne_pct']:+.1f} %, "
-              f"max. propad {m['max_dd_pct']:.1f} %)".replace(",", " "))
+        print(f"  {label:40} {kc(m['konec']):>12}  ({m['vynos_pct']:+.1f} %, ročně {m['rocne_pct']:+.1f} %, "
+              f"max. propad {m['max_dd_pct']:.1f} %)")
+    v = report["vyhled"]
+    print(f"Výhled na {v['roky']} roky ({v['cest']} simulací z historie, není to předpověď):")
+    for label, m in v["summary"].items():
+        print(f"  {label:40} střed {kc(m['p50']):>12}  (pesimisticky {kc(m['p10'])}, optimisticky {kc(m['p90'])}, "
+              f"šance na ztrátu {m['sance_ztraty_pct']:.0f} %)")
     print(f"Report: {out.resolve()}")
     if not args.no_open:
         webbrowser.open(out.resolve().as_uri())
