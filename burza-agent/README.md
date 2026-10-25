@@ -65,6 +65,11 @@ Přepnutí: `python -m burza set-strategy --configs config_a.toml config_b.toml 
 Rešerše strategií, zpráv a zdrojů: [docs/RESERSE.md](docs/RESERSE.md).
 Porovnání strategií na reálných datech: `6_BACKTEST.bat` (nebo `python -m burza compare`).
 
+Jak by si zvolená swing strategie vedla v minulosti proti držení S&P 500 (SPY) a Nasdaq 100 (QQQ):
+`8_HISTORIE.bat` (nebo `python -m burza history-report`). Vytvoří `data_a/historie.html` – graf hodnoty
+200 000 Kč v čase, výnos po letech, max. propad, Sharpe a srovnání s ostatními swing strategiemi
+(skutečné poplatky eToro, data upravená o splity, prvních 210 dní slouží jen k zahřátí indikátorů).
+
 ## Ochranné limity (pro každou studii zvlášť)
 
 - riziko obchodu max. **1 %** počátečního kapitálu; Studie B smí velikost jen snížit (×0,5), nikdy zvýšit

@@ -17,6 +17,7 @@ from . import market
 from .config import Config
 
 PAGE = Path(__file__).with_name("dashboard.html")
+CHART_JS = Path(__file__).with_name("chart.js")
 MAX_POINTS = 1500
 
 
@@ -215,6 +216,8 @@ def serve(cfgs: list[Config], host: str = "127.0.0.1", port: int = 8080) -> None
         def do_GET(self):  # noqa: N802
             if self.path in ("/", "/index.html"):
                 self._send(200, page, "text/html; charset=utf-8")
+            elif self.path == "/chart.js":
+                self._send(200, CHART_JS.read_bytes(), "text/javascript; charset=utf-8")
             elif self.path == "/api/data":
                 body = json.dumps(build_payload(cfgs), ensure_ascii=False, default=str).encode()
                 self._send(200, body, "application/json; charset=utf-8")

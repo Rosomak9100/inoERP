@@ -181,3 +181,36 @@ class SplitTests(unittest.TestCase):
         self.assertAlmostEqual(p.stop, 90)
         fills = b.on_bar("NVDA", Candle(utc(2024, 6, 10, 13, 30), 100, 101, 95, 100))
         self.assertEqual(fills, [])                                       # žádný falešný stop-loss
+
+
+class HistoryReportTests(unittest.TestCase):
+    def test_strategy_vs_indices(self):
+        import math
+        from burza.history_report import WARMUP_DAYS, build_history, render_html
+        days = trading_days(date(2022, 1, 3), 600)
+        data = {s: normalize_daily(etoro_daily(days, [100 * (1 + 0.15 * math.sin(i / (15 + k))) + i * (0.05 + k / 100)
+                                                      for i in range(600)]))
+                for k, s in enumerate(["SPY", "QQQ", "AAPL"])}
+        cfg = config(instruments={"SPY": 3000, "QQQ": 3006, "AAPL": 1001}, usdczk_start_rate=20.0)
+        rep = build_history(cfg, data, "rsi2_pullback")
+        names = list(rep["lines"])
+        self.assertEqual(names, ["Strategie rsi2_pullback", "S&P 500 (SPY) – kup a drž", "Nasdaq 100 (QQQ) – kup a drž"])
+        self.assertEqual(rep["od"], str(days[WARMUP_DAYS]))
+        for n in names:   # všechny začínají stejnou částkou v Kč ve stejný den
+            self.assertEqual(rep["lines"][n][0][0], rep["od"])
+            self.assertAlmostEqual(rep["lines"][n][0][1], 200_000, delta=200)
+        spy = data["SPY"]
+        self.assertAlmostEqual(rep["summary"][names[1]]["vynos_pct"],
+                               (spy[-1].close / spy[WARMUP_DAYS].close - 1) * 100, places=1)
+        self.assertEqual(set(rep["others"]), set(DAILY_STRATEGIES) - {"rsi2_pullback"})
+        html = render_html(rep)
+        self.assertIn("lineChart", html)
+        rep["strategie"] = "</script><b>"
+        self.assertNotIn("</script><b>", render_html(rep))
+
+    def test_too_short_history(self):
+        from burza.history_report import build_history
+        days = trading_days(date(2026, 1, 5), 100)
+        data = {"SPY": normalize_daily(etoro_daily(days, [100 + i for i in range(100)]))}
+        with self.assertRaises(ValueError):
+            build_history(config(), data, "rsi2_pullback")

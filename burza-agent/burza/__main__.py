@@ -143,29 +143,60 @@ def cmd_compare(cfg: Config, args) -> int:
     return rc
 
 
-def cmd_compare_swing(cfg: Config, args) -> int:
-    """Swing strategie na denních svíčkách za `years` let, walk-forward 70/30, srovnání s „kup a drž“."""
-    import copy
+def _load_daily(cfg: Config, years: int, refresh: bool = False) -> dict:
+    """Denní historie všech instrumentů (stáhne se, pokud chybí nebo je starší než 20 h)."""
     import time as _time
-    from .backtest_daily import buy_and_hold, run_daily_backtest, walk_forward_daily
-    from .config import CostConfig
-    from .strategy_daily import DAILY_STRATEGIES, normalize_daily
+    from .strategy_daily import normalize_daily
 
     def path(sym):
         return Path(cfg.data_dir) / "history" / f"{sym}_1d.csv"
 
     stale = [s for s in cfg.instruments
              if not path(s).exists() or _time.time() - path(s).stat().st_mtime > 20 * 3600]
-    if stale or args.refresh:
-        print(f"Stahuji denní historii {args.years} let z eToro …")
+    if stale or refresh:
+        print(f"Stahuji denní historii {years} let z eToro …")
         client = _client(cfg)
         end = utcnow()
         for sym, iid in cfg.instruments.items():
-            candles = client.history_candles(iid, "1d", end - timedelta(days=365 * args.years), end)
+            candles = client.history_candles(iid, "1d", end - timedelta(days=365 * years), end)
             save_csv(path(sym), candles)
             print(f"{sym}: {len(candles)} dní")
     data = {s: normalize_daily(load_csv(path(s))) for s in cfg.instruments}
-    data = {s: c for s, c in data.items() if len(c) > 260}
+    return {s: c for s, c in data.items() if len(c) > 260}
+
+
+def cmd_history_report(cfg: Config, args) -> int:
+    """Report: zvolená swing strategie v minulosti vs. kup a drž S&P 500 a Nasdaq 100 (HTML)."""
+    import webbrowser
+    from .history_report import build_history, render_html
+    from .strategy_daily import DAILY_STRATEGIES
+    name = args.strategy or (cfg.strategy if cfg.strategy in DAILY_STRATEGIES else "rsi2_pullback")
+    data = _load_daily(cfg, args.years, args.refresh)
+    print(f"Počítám historii strategie {name} na {len(data)} instrumentech …")
+    try:
+        report = build_history(cfg, data, name)
+    except ValueError as e:
+        print(f"Report nejde spočítat: {e}. Zkus --years 8 nebo --refresh.")
+        return 1
+    out = Path(cfg.data_dir) / "historie.html"
+    out.write_text(render_html(report), encoding="utf-8")
+    for label, m in report["summary"].items():
+        print(f"  {label:40} {m['konec']:>12,.0f} Kč  ({m['vynos_pct']:+.1f} %, ročně {m['rocne_pct']:+.1f} %, "
+              f"max. propad {m['max_dd_pct']:.1f} %)".replace(",", " "))
+    print(f"Report: {out.resolve()}")
+    if not args.no_open:
+        webbrowser.open(out.resolve().as_uri())
+    return 0
+
+
+def cmd_compare_swing(cfg: Config, args) -> int:
+    """Swing strategie na denních svíčkách za `years` let, walk-forward 70/30, srovnání s „kup a drž“."""
+    import copy
+    from .backtest_daily import buy_and_hold, run_daily_backtest, walk_forward_daily
+    from .config import CostConfig
+    from .strategy_daily import DAILY_STRATEGIES
+
+    data = _load_daily(cfg, args.years, args.refresh)
     swing_cfg = copy.copy(cfg)
     swing_cfg.risk = copy.copy(cfg.risk)
     swing_cfg.risk.flatten_on_daily_limit = False   # swing při denním limitu jen nenakupuje
@@ -589,6 +620,11 @@ def main(argv: list[str] | None = None) -> int:
     ss.add_argument("--strategy", required=True)
     ne = sub.add_parser("new-experiment", help="čistý start studií (archiv deníků, nový kurz a datum)")
     ne.add_argument("--configs", nargs="+", required=True)
+    hr = sub.add_parser("history-report", help="strategie v minulosti vs. S&P 500 a Nasdaq 100 (HTML)")
+    hr.add_argument("--strategy")
+    hr.add_argument("--years", type=int, default=8)
+    hr.add_argument("--refresh", action="store_true")
+    hr.add_argument("--no-open", action="store_true", help="neotevírat prohlížeč")
     d = sub.add_parser("dashboard", help="webový dashboard obou studií")
     d.add_argument("--studies", nargs="+", help="configy studií, např. config_a.toml config_b.toml")
     d.add_argument("--host", default="127.0.0.1")
@@ -608,7 +644,7 @@ def main(argv: list[str] | None = None) -> int:
                 "status": cmd_status, "report": cmd_report, "test-order": cmd_test_order,
                 "dashboard": cmd_dashboard, "init-start": cmd_init_start, "compare": cmd_compare,
                 "sync-config": cmd_sync_config, "set-strategy": cmd_set_strategy,
-                "new-experiment": cmd_new_experiment}
+                "new-experiment": cmd_new_experiment, "history-report": cmd_history_report}
     try:
         return handlers[args.cmd](cfg, args)
     except ConfigError as exc:

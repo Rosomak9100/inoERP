@@ -13,6 +13,7 @@ Stejné soubory jsou i ve složce `burza-agent` (např. `C:\Users\<tvé jméno>\
 | `5_DASHBOARD.bat` | znovu otevře přehled v prohlížeči |
 | `7_PREPNOUT_NA_SWING.bat` | přepne obě studie na swing strategii RSI(2) a založí čistý start experimentu |
 | `6_BACKTEST.bat` | porovná intradenní (1 rok) i swing strategie (8 let) na reálných datech – výsledek pošli Claudovi |
+| `8_HISTORIE.bat` | ukáže v prohlížeči, jak by si zvolená strategie vedla za posledních ~7 let proti držení S&P 500 a Nasdaq 100 (graf 200 000 Kč, výnos po letech, největší propady) |
 
 ---
 
