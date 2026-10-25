@@ -46,6 +46,27 @@ class LiveData:
         return closed
 
 
+class DailyLiveData:
+    """Denní svíčky pro swing: historie z eToro (obnova po 6 h) + dnešní den složený z 5min svíček."""
+
+    def __init__(self, client: EtoroClient, days: int = 450):
+        self.client = client
+        self.days = days
+        self._hist: dict[int, tuple[datetime, list[Candle]]] = {}
+
+    def daily_candles(self, instrument_id: int, now: datetime) -> list[Candle]:
+        from .strategy_daily import daily_from_intraday, normalize_daily
+        today = market.trading_date(now)
+        cached = self._hist.get(instrument_id)
+        if not cached or now - cached[0] > timedelta(hours=6):
+            raw = self.client.history_candles(instrument_id, "1d", now - timedelta(days=self.days), now)
+            self._hist[instrument_id] = (now, normalize_daily(raw))
+        hist = [c for c in self._hist[instrument_id][1] if market.to_et(c.time).date() < today]
+        intraday = self.client.live_candles(instrument_id, "5m", 100)
+        today_bar = [c for c in daily_from_intraday(intraday) if market.to_et(c.time).date() == today]
+        return hist + today_bar
+
+
 class Agent:
     def __init__(self, cfg: Config, journal: Journal, broker: Broker, data: LiveData,
                  strategy: Strategy, clock=utcnow):
@@ -246,6 +267,12 @@ class Agent:
             self._save(st)
             return "market_closed"
 
+        if self.cfg.horizon == "swing":
+            status = self._swing_step(now, account, st, prices)
+            self.journal.set_state("last_prices", prices)
+            self._save(st)
+            return status
+
         if market.minutes_to_close(now) <= self.cfg.session.flatten_minutes_before_close:
             if self._own_positions(account):
                 self.flatten(account, "konec seance", prices)
@@ -321,6 +348,60 @@ class Agent:
         self.journal.set_state("last_prices", prices)
         self._save(st)
         return "ok"
+
+    def _swing_step(self, now: datetime, account: Account, st: RiskState, prices: dict[str, float]) -> str:
+        """Swing: jednou denně těsně před koncem seance – stopy, výstupy, pak vstupy. Přes noc se drží."""
+        today = market.trading_date(now)
+        if self.journal.get_state("swing_day") == today.isoformat():
+            return "swing_done"
+        if market.minutes_to_close(now) > self.cfg.swing_decision_minutes:
+            return "swing_wait"
+        candles_by_symbol: dict[str, list[Candle]] = {}
+        for symbol, iid in self.cfg.instruments.items():
+            try:
+                candles = self.data.daily_candles(iid, now)
+            except EtoroError as exc:
+                self.journal.event("data_error", f"{symbol}: {exc}", level="WARNING")
+                continue
+            if not candles or market.to_et(candles[-1].time).date() != today:
+                self.journal.event("stale", f"{symbol}: chybí dnešní data – neobchoduji", level="WARNING")
+                continue
+            candles_by_symbol[symbol] = candles
+            last = candles[-1]
+            prices[symbol] = last.close
+            if isinstance(self.broker, PaperBroker):
+                for fill in self.broker.on_bar(symbol, last):   # stopy pozic z minulých dnů
+                    self.journal.trade_close(fill.position.position_id, fill.price, fill.pnl,
+                                             "simulace", fill.reason, fill.time.isoformat(), fill.costs)
+        account = self.broker.account()
+        for p in self._own_positions(account):
+            candles = candles_by_symbol.get(p.symbol)
+            if candles:
+                reason = self.strategy.exit(p, candles[-self.strategy.history_bars:])
+                if reason:
+                    self._close(p, reason, candles[-1].close)
+        account = self.broker.account()
+        if not (st.halted or st.daily_blocked):
+            for symbol, candles in candles_by_symbol.items():
+                if any(p.symbol == symbol for p in account.positions):
+                    continue
+                if symbol in {r["symbol"] for r in self.journal.pending_orders()}:
+                    continue
+                sig = self.strategy.entry(symbol, candles[-self.strategy.history_bars:])
+                if sig is None:
+                    continue
+                own_all = self._own_positions(account)
+                open_risk = sum(max(p.units * (prices.get(p.symbol, p.open_price) - p.stop), 0)
+                                for p in own_all if p.stop)
+                decision = self.risk.evaluate(sig, st, account, open_risk, {p.symbol for p in account.positions},
+                                              max_units=self.broker.max_units(self.cfg.instruments[symbol]))
+                self.journal.signal(sig, self.strategy.name, decision.accepted, decision.reason)
+                if decision.accepted:
+                    self._place(sig, decision, self.cfg.instruments[symbol], st)
+                    account = self.broker.account()
+        self.journal.set_state("swing_day", today.isoformat())
+        self.journal.event("swing", f"Denní rozhodnutí hotovo ({len(candles_by_symbol)} instrumentů)")
+        return "swing_ok"
 
     def run_forever(self) -> None:
         self.recover_pending()

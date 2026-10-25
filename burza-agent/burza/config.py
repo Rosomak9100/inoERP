@@ -37,8 +37,10 @@ class SessionConfig:
 # Skutečné náklady eToro změřené přes API (what-if náklady pro nákup za 2000 USD, 23. 10. 2026).
 # Poplatek za obchod (transactionFee) je pevný v USD a počítá se pro nákup i prodej (prodej z API
 # nejde ověřit předem – předpoklad je opatrný). Spread v bps = spread / cena × 10 000.
-ETORO_FEE_USD = {"SPY": 3.0, "QQQ": 3.0, "GLD": 3.0, "USO": 3.0, "AAPL": 1.0, "NVDA": 1.0}
-ETORO_SPREAD_BPS = {"SPY": 0.25, "QQQ": 0.3, "GLD": 0.55, "USO": 1.2, "AAPL": 0.85, "NVDA": 0.95}
+ETORO_FEE_USD = {"SPY": 3.0, "QQQ": 3.0, "GLD": 3.0, "USO": 3.0, "AAPL": 1.0, "NVDA": 1.0,
+                 "MSFT": 1.0, "AMZN": 1.0, "GOOGL": 1.0, "META": 1.0, "JPM": 1.0, "XOM": 1.0}
+ETORO_SPREAD_BPS = {"SPY": 0.25, "QQQ": 0.3, "GLD": 0.55, "USO": 1.2, "AAPL": 0.85, "NVDA": 0.95,
+                    "MSFT": 0.95, "AMZN": 1.6, "GOOGL": 0.6, "META": 2.3, "JPM": 0.9, "XOM": 1.6}
 
 
 @dataclass
@@ -76,6 +78,8 @@ class AiConfig:
 class Config:
     study: str = "A"                       # A = technická, B = AI + zprávy/makro
     study_name: str = ""
+    horizon: str = "intraday"              # intraday = obchody během dne; swing = držení dny až týdny
+    swing_decision_minutes: int = 15       # swing: rozhodnutí jednou denně N minut před koncem seance
     mode: str = "paper"
     real_trading_confirmed: bool = False
     strategy: str = "vwap_pullback"
@@ -117,6 +121,8 @@ class Config:
             raise ConfigError("study musí být A nebo B")
         if self.study == "B" and not self.finnhub_api_key and not self.fred_api_key:
             raise ConfigError("Studie B potřebuje aspoň FINNHUB_API_KEY nebo FRED_API_KEY")
+        if self.horizon not in ("intraday", "swing"):
+            raise ConfigError('horizon musí být "intraday" nebo "swing"')
         if self.ai.provider not in ("pravidla", "api"):
             raise ConfigError('ai.provider musí být "pravidla" nebo "api"')
         if self.mode not in ("paper", "demo", "real"):

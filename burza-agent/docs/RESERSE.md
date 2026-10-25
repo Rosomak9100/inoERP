@@ -61,6 +61,24 @@ Kandidáti (vyžadují schválení změny metodiky – zadání počítá primá
 trendové / momentum strategie na denních svíčkách pro ETF (SPY, QQQ, GLD, USO), např. filtr 200denního
 průměru nebo 12měsíční momentum (Moskowitz, Ooi & Pedersen 2012, *Time series momentum*).
 
+### Rozhodnutí 26. 10. 2026: méně obchodů, delší držení (swing)
+
+Schváleno uživatelem po zjištění, že poplatky eToro převyšují hrubou výhodu intradenních strategií.
+Nový režim `horizon = "swing"`: rozhodnutí jednou denně 15 min před koncem seance (jako obchod na close),
+pozice se drží přes noc (u pozic bez páky bez poplatku za noc), stop-loss na eToro je jen pojistka (2–3 ATR).
+
+| Strategie | Pravidlo | Zdroj |
+|---|---|---|
+| `trend_sma200` | drž, když je close > SMA200 +1 %, prodej pod SMA200 −1 % | Faber (2007), *A Quantitative Approach to Tactical Asset Allocation* |
+| `momentum_12m` | kontrola 1× měsíčně: drž, když je 12měsíční výnos kladný | Moskowitz, Ooi & Pedersen (2012), *Time series momentum* |
+| `donchian_55_20` | nákup na novém 55denním maximu, prodej pod 20denním minimem | „Turtle“ pravidla, trend following |
+| `rsi2_pullback` | v trendu nad SMA200 nákup při RSI(2) < 10, prodej nad SMA5 (max 10 dní) | L. Connors, krátkodobý návrat k průměru |
+
+Backtest: 8 let denních dat z eToro, 70 % vývoj / 30 % test, skutečné poplatky, srovnání s „kup a drž“.
+Universe: ETF (CFD, 3 USD) + velké akcie (skutečné, 1 USD): AAPL, NVDA, MSFT, AMZN, GOOGL, META, JPM, XOM.
+Pozor na **survivorship bias** – dnešní velké firmy jsou vybrané zpětně podle úspěchu, minulé výnosy
+strategií na nich jsou proto nadhodnocené. Hlavní měřítko je poměr výnosu a rizika proti „kup a drž“.
+
 ### Komodity
 
 Agent obchoduje komodity přes ETF na americké burze – **GLD** (zlato) a **USO** (ropa WTI). Mají stejné

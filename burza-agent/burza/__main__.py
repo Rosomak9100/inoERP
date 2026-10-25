@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from . import market
-from .agent import Agent, LiveData, utcnow
+from .agent import Agent, DailyLiveData, LiveData, utcnow
 from .backtest import load_csv, run_backtest, save_csv, walk_forward
 from .broker import EtoroBroker, PaperBroker
 from .config import Config, ConfigError, load_config
@@ -130,7 +130,92 @@ def cmd_backtest(cfg: Config, args) -> int:
 
 
 def cmd_compare(cfg: Config, args) -> int:
-    """Porovná všechny strategie walk-forward testem + diagnostika (bez nákladů, po instrumentech)."""
+    """Porovná strategie: intradenní (5min, 1 rok) a/nebo swing (denní, několik let)."""
+    rc = 0
+    if args.horizon in ("intraday", "all"):
+        rc = cmd_compare_intraday(cfg, args) or rc
+    if args.horizon in ("swing", "all"):
+        if args.horizon == "all":
+            print()
+            print("=" * 100)
+            print()
+        rc = cmd_compare_swing(cfg, args) or rc
+    return rc
+
+
+def cmd_compare_swing(cfg: Config, args) -> int:
+    """Swing strategie na denních svíčkách za `years` let, walk-forward 70/30, srovnání s „kup a drž“."""
+    import copy
+    import time as _time
+    from .backtest_daily import buy_and_hold, run_daily_backtest, walk_forward_daily
+    from .config import CostConfig
+    from .strategy_daily import DAILY_STRATEGIES, normalize_daily
+
+    def path(sym):
+        return Path(cfg.data_dir) / "history" / f"{sym}_1d.csv"
+
+    stale = [s for s in cfg.instruments
+             if not path(s).exists() or _time.time() - path(s).stat().st_mtime > 20 * 3600]
+    if stale or args.refresh:
+        print(f"Stahuji denní historii {args.years} let z eToro …")
+        client = _client(cfg)
+        end = utcnow()
+        for sym, iid in cfg.instruments.items():
+            candles = client.history_candles(iid, "1d", end - timedelta(days=365 * args.years), end)
+            save_csv(path(sym), candles)
+            print(f"{sym}: {len(candles)} dní")
+    data = {s: normalize_daily(load_csv(path(s))) for s in cfg.instruments}
+    data = {s: c for s, c in data.items() if len(c) > 260}
+    swing_cfg = copy.copy(cfg)
+    swing_cfg.risk = copy.copy(cfg.risk)
+    swing_cfg.risk.flatten_on_daily_limit = False   # swing při denním limitu jen nenakupuje
+    initial = cfg.initial_capital_usd or 10_000.0
+    days = sorted({market.to_et(c.time).date() for cs in data.values() for c in cs})
+    test_days = days[int(len(days) * 0.7):]
+    gross_cfg = copy.copy(swing_cfg)
+    gross_cfg.costs = CostConfig.zero()
+
+    rows = []
+    for name, cls in DAILY_STRATEGIES.items():
+        print(f"Testuji {name} …")
+        wf = walk_forward_daily(swing_cfg, cls(), data, initial)
+        gross = run_daily_backtest(gross_cfg, cls(), data, initial, test_days).metrics()
+        rows.append((name, wf, gross))
+        with (Path(cfg.data_dir) / "backtests.jsonl").open("a", encoding="utf-8") as f:
+            f.write(json.dumps({"ts": utcnow().isoformat(), "horizont": "swing", "strategie": name,
+                                "risk": vars(swing_cfg.risk), **wf, "test_bez_nakladu": gross},
+                               ensure_ascii=False, default=str) + "\n")
+    bh_dev = buy_and_hold(data, days[:int(len(days) * 0.7)])
+    bh_test = buy_and_hold(data, test_days)
+    print()
+    print(f"SWING (držení dny až týdny), {len(data)} instrumentů, {days[0]} až {days[-1]}, skutečné náklady eToro.")
+    print(f"Vývoj: {rows[0][1]['vyvoj']['od']} – {rows[0][1]['vyvoj']['do']}, "
+          f"TEST: {rows[0][1]['test']['od']} – {rows[0][1]['test']['do']}")
+    head = (f"{'strategie':18} {'část':6} {'výnos %':>8} {'obchodů':>8} {'win %':>6} {'PF':>5} "
+            f"{'max DD %':>8} {'Sharpe':>7} {'t (dny)':>7} {'nákl. %':>8} {'bez nákl.%':>10}")
+    print(head)
+    print("-" * len(head))
+    for name, wf, gross in rows:
+        for part in ("vyvoj", "test"):
+            m = wf[part]
+            extra = f"{gross['vynos_pct']:>10.2f}" if part == "test" else f"{'':>10}"
+            print(f"{name:18} {part:6} {m['vynos_pct']:>8.2f} {m['obchodu']:>8} {m['win_rate_pct']:>6} "
+                  f"{str(m['profit_factor']):>5} {m['max_drawdown_pct']:>8.2f} {m['sharpe']:>7.2f} "
+                  f"{str(m['t_stat_dni']):>7} {m['naklady_pct']:>8.2f} {extra}")
+    for part, bh in (("vyvoj", bh_dev), ("test", bh_test)):
+        print(f"{'kup a drž (vše)':18} {part:6} {bh['vynos_pct']:>8.2f} {'–':>8} {'–':>6} {'–':>5} "
+              f"{bh['max_drawdown_pct']:>8.2f} {bh['sharpe']:>7.2f}   (rovnoměrně všechny instrumenty, bez poplatků)")
+    print()
+    print("Jak číst: strategie dává smysl, když má v TEST kladný výnos, PF > 1.2 a lepší poměr výnosu a rizika")
+    print("než 'kup a drž' (vyšší Sharpe nebo výrazně menší max DD). 't (dny)' > 2 = výsledek nejspíš není náhoda.")
+    print("Strategie drží max. 3 pozice najednou (limit rizika), 'kup a drž' drží všechno – výnosy proto nejsou")
+    print("přímo srovnatelné, srovnávej hlavně Sharpe a max DD. Pozor: dnešní velké firmy (NVDA, META…)")
+    print("v minulosti hodně rostly – výsledky z minulosti to nadhodnocuje (survivorship bias).")
+    return 0
+
+
+def cmd_compare_intraday(cfg: Config, args) -> int:
+    """Porovná intradenní strategie walk-forward testem + diagnostika (bez nákladů, po instrumentech)."""
     import copy
     import time as _time
     from .backtest import group_by_day
@@ -208,7 +293,7 @@ def _agent(cfg: Config) -> tuple[Agent, Journal]:
     journal = Journal(cfg.db_path)
     client = _client(cfg)
     broker = _broker(cfg, journal, client)
-    data = LiveData(client, cfg.interval, cfg.interval_minutes)
+    data = DailyLiveData(client) if cfg.horizon == "swing" else LiveData(client, cfg.interval, cfg.interval_minutes)
     return Agent(cfg, journal, broker, data, make_study_strategy(cfg, client)), journal
 
 
@@ -400,6 +485,32 @@ def cmd_sync_config(cfg: Config, args) -> int:
     return 0
 
 
+def cmd_set_strategy(cfg: Config, args) -> int:
+    """Přepne studie na zvolenou strategii a horizont (Studie B ji použije jako technický základ)."""
+    import re
+    from .strategy import make_strategy
+    make_strategy(args.strategy)  # ověří, že strategie existuje
+    for path in args.configs:
+        target = Path(path)
+        text = target.read_text(encoding="utf-8-sig")
+
+        def put(key, value, text):
+            line = f"{key} = {value}"
+            if re.search(rf"^{key}\s*=", text, re.M):
+                return re.sub(rf"^{key}\s*=.*$", line, text, count=1, flags=re.M)
+            return re.sub(r"^(mode\s*=.*)$", rf"\1\n{line}", text, count=1, flags=re.M)
+
+        text = put("horizon", f'"{args.horizon}"', text)
+        text = put("strategy", f'"{args.strategy}"', text)
+        text = re.sub(r"^base_strategy\s*=.*$", f'base_strategy = "{args.strategy}"', text, flags=re.M)
+        flatten = "false" if args.horizon == "swing" else "true"
+        text = re.sub(r"^flatten_on_daily_limit\s*=.*$", f"flatten_on_daily_limit = {flatten}", text, flags=re.M)
+        target.write_text(text, encoding="utf-8")
+        print(f"{path}: horizon = {args.horizon}, strategie = {args.strategy}")
+    print("Hotovo. Zastav agenty (Burza - ZASTAVIT) a spusť je znovu (Burza - SPUSTIT).")
+    return 0
+
+
 def cmd_dashboard(cfg: Config, args) -> int:
     from .dashboard import serve
     cfgs = [load_config(path, validate=False) for path in args.studies] if args.studies else [cfg]
@@ -420,7 +531,9 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--strategy")
     b.add_argument("--walk-forward", action="store_true", help="vývojová 70 % / testovací 30 % dnů")
     c = sub.add_parser("compare", help="porovná všechny strategie (walk-forward)")
-    c.add_argument("--days", type=int, default=365)
+    c.add_argument("--days", type=int, default=365, help="intradenní: kolik dní 5min dat")
+    c.add_argument("--years", type=int, default=8, help="swing: kolik let denních dat")
+    c.add_argument("--horizon", choices=["intraday", "swing", "all"], default="all")
     c.add_argument("--refresh", action="store_true", help="znovu stáhnout historii")
     r = sub.add_parser("run", help="spustí agenta")
     r.add_argument("--once", action="store_true", help="jen jeden cyklus")
@@ -439,6 +552,10 @@ def main(argv: list[str] | None = None) -> int:
     i.add_argument("--force", action="store_true")
     sc = sub.add_parser("sync-config", help="doplní nové instrumenty ze vzorových configů")
     sc.add_argument("--configs", nargs="+", required=True)
+    ss = sub.add_parser("set-strategy", help="přepne studie na strategii a horizont")
+    ss.add_argument("--configs", nargs="+", required=True)
+    ss.add_argument("--horizon", choices=["intraday", "swing"], required=True)
+    ss.add_argument("--strategy", required=True)
     d = sub.add_parser("dashboard", help="webový dashboard obou studií")
     d.add_argument("--studies", nargs="+", help="configy studií, např. config_a.toml config_b.toml")
     d.add_argument("--host", default="127.0.0.1")
@@ -448,7 +565,7 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     try:
-        cfg = load_config(args.config, validate=args.cmd not in ("dashboard", "init-start", "sync-config"))
+        cfg = load_config(args.config, validate=args.cmd not in ("dashboard", "init-start", "sync-config", "set-strategy"))
     except ConfigError as exc:
         print("Chyba konfigurace:", exc)
         return 2
@@ -456,7 +573,7 @@ def main(argv: list[str] | None = None) -> int:
                 "kill": cmd_kill, "resume": cmd_resume, "reset-halt": cmd_reset_halt,
                 "status": cmd_status, "report": cmd_report, "test-order": cmd_test_order,
                 "dashboard": cmd_dashboard, "init-start": cmd_init_start, "compare": cmd_compare,
-                "sync-config": cmd_sync_config}
+                "sync-config": cmd_sync_config, "set-strategy": cmd_set_strategy}
     try:
         return handlers[args.cmd](cfg, args)
     except ConfigError as exc:

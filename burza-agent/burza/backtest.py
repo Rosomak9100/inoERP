@@ -56,6 +56,11 @@ class Result:
             mean = sum(rets) / len(rets)
             sd = math.sqrt(sum((r - mean) ** 2 for r in rets) / (len(rets) - 1))
             sharpe = mean / sd * math.sqrt(252) if sd else 0.0
+        t_days = None  # t-stat průměrného denního výnosu (vhodný pro strategie s málo obchody)
+        if len(rets) > 2:
+            m_d = sum(rets) / len(rets)
+            sd_d = math.sqrt(sum((r - m_d) ** 2 for r in rets) / (len(rets) - 1))
+            t_days = m_d / (sd_d / math.sqrt(len(rets))) if sd_d else None
         t_stat = None  # průměrný obchod / jeho směrodatná chyba; > 2 slušné, > 3 přesvědčivé
         if len(pnls) > 2:
             mp = sum(pnls) / len(pnls)
@@ -71,6 +76,7 @@ class Result:
             "max_drawdown_pct": round(max_dd * 100, 2),
             "sharpe": round(sharpe, 2),
             "t_stat": round(t_stat, 2) if t_stat is not None else None,
+            "t_stat_dni": round(t_days, 2) if t_days is not None else None,
             "nejlepsi_obchod": round(max(pnls), 2) if pnls else 0,
             "nejhorsi_obchod": round(min(pnls), 2) if pnls else 0,
             "odmitnute_signaly": self.rejected,

@@ -10,7 +10,11 @@ study_name = "Studie B – zprávy + makro"
 mode = "paper"
 real_trading_confirmed = false
 
-strategy = "vwap_pullback"   # vwap_pullback | orb | noise_momentum
+# horizon: "intraday" = obchody během dne (vše zavřeno před koncem); "swing" = držení dny až týdny
+horizon = "intraday"
+# intradenní: vwap_pullback | orb | noise_momentum | intraday_momentum
+# swing:      trend_sma200 | momentum_12m | donchian_55_20 | rsi2_pullback
+strategy = "vwap_pullback"
 interval = "5m"              # 1m | 5m | 15m
 poll_seconds = 30
 
@@ -72,3 +76,10 @@ AAPL = 1001
 NVDA = 1137
 GLD = 3025
 USO = 3007
+# Velké americké akcie – na eToro skutečné akcie s poplatkem jen 1 USD (ETF výše jsou CFD za 3 USD)
+MSFT = 1004
+AMZN = 1005
+GOOGL = 6434
+META = 1003
+JPM = 1023
+XOM = 1036

@@ -272,7 +272,9 @@ STRATEGIES = {VwapPullback.name: VwapPullback, OpeningRangeBreakout.name: Openin
 
 
 def make_strategy(name: str) -> Strategy:
+    from .strategy_daily import DAILY_STRATEGIES
+    registry = {**STRATEGIES, **DAILY_STRATEGIES}
     try:
-        return STRATEGIES[name]()
+        return registry[name]()
     except KeyError:
-        raise ValueError(f"Neznámá strategie {name}; dostupné: {', '.join(STRATEGIES)}") from None
+        raise ValueError(f"Neznámá strategie {name}; dostupné: {', '.join(registry)}") from None

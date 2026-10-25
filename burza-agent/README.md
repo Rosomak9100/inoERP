@@ -58,6 +58,10 @@ Služby systemd: `deploy/burza.service` (pro Studii B zkopíruj a změň `--conf
 Výchozí `ai.provider = "pravidla"` je zdarma. Při `"api"` volá Claude jen u technického kandidáta,
 max. `max_calls_per_day` (výchozí 40) za den. Když posouzení selže, obchod se **neotevře** a důvod se zapíše.
 
+Dva horizonty (`horizon` v configu): `intraday` – obchody během dne, vše zavřeno před koncem seance;
+`swing` – rozhodnutí jednou denně před koncem seance, držení dny až týdny (méně obchodů → nižší poplatky).
+Přepnutí: `python -m burza set-strategy --configs config_a.toml config_b.toml --horizon swing --strategy trend_sma200`.
+
 Rešerše strategií, zpráv a zdrojů: [docs/RESERSE.md](docs/RESERSE.md).
 Porovnání strategií na reálných datech: `6_BACKTEST.bat` (nebo `python -m burza compare`).
 

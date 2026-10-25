@@ -151,7 +151,9 @@ def methodology(cfg: Config) -> dict:
         f"{cfg.ai.base_strategy} + posouzení kontextu " + (
             f"(Claude API {cfg.ai.model}, effort {cfg.ai.effort})" if cfg.ai.provider == "api"
             else "(bezplatná pravidla: tón zpráv, už v ceně, trh, VIX, Fed, výsledky)"),
-        "data": f"eToro svíčky {cfg.interval}, jen uzavřené svíčky",
+        "data": ("swing: denní svíčky eToro, rozhodnutí jednou denně "
+                 f"{cfg.swing_decision_minutes} min před koncem seance, držení přes noc"
+                 if cfg.horizon == "swing" else f"intradenní: eToro svíčky {cfg.interval}, jen uzavřené, vše zavřeno před koncem dne"),
         "zpravy": "nepoužívá" if cfg.study == "A" else "Finnhub (zprávy, výsledky), FRED (makro), FOMC kalendář",
         "start": cfg.start_date or "-",
         "kapital_czk": cfg.initial_capital_czk or None,
