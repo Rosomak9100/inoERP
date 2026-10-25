@@ -102,6 +102,7 @@ class RiskEngine:
         if max_units is not None:
             units = min(units, max_units)
         amount = units * sig.entry
+        min_amount = max(min_amount, getattr(c, "min_position_usd", 0.0))
         if amount < min_amount:
             return Decision(False, f"pozice příliš malá ({amount:.2f} USD)")
         risk_usd = units * rpu

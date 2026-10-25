@@ -22,6 +22,7 @@ class RiskConfig:
     max_open_positions: int = 3
     max_position_pct: float = 25.0
     max_trades_per_day: int = 10
+    min_position_usd: float = 500.0   # menší pozice se neotevře – pevný poplatek by byl nepřiměřený
     flatten_on_daily_limit: bool = True
 
 

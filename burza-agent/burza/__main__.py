@@ -181,8 +181,18 @@ def cmd_compare(cfg: Config, args) -> int:
                   f"{str(m['profit_factor']):>5} {m['max_drawdown_pct']:>8.2f} {m['sharpe']:>7.2f} "
                   f"{str(m['t_stat']):>7} {extra}")
     print()
+    print("2) Kolik stojí poplatky (část TEST, se skutečnými náklady):")
+    h2 = f"{'strategie':18} {'prům. pozice':>13} {'zisk/obchod před nákl.':>23} {'náklad/obchod':>14} {'náklady celkem':>15}"
+    print(h2)
+    print("-" * len(h2))
+    for name, wf, _, _ in rows:
+        m = wf["test"]
+        print(f"{name:18} {m['prum_pozice_usd']:>9.0f} USD {m['prum_zisk_pred_naklady_usd']:>19.2f} USD "
+              f"{m['prum_naklad_usd']:>10.2f} USD {m['naklady_usd']:>8.0f} USD ({m['naklady_pct']:.1f} %)")
+    print("   Strategie vydělá jen tehdy, když 'zisk/obchod před nákl.' je výrazně větší než 'náklad/obchod'.")
+    print()
     syms = list(data)
-    print("2) Část TEST po instrumentech – výnos % (počet obchodů):")
+    print("3) Část TEST po instrumentech – výnos % (počet obchodů):")
     print(f"{'strategie':18} " + " ".join(f"{s:>13}" for s in syms))
     for name, _, _, per_sym in rows:
         cells = [f"{per_sym[s]['vynos_pct']:>+7.2f} ({per_sym[s]['obchodu']:>3})" for s in syms]

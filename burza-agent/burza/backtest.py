@@ -29,6 +29,8 @@ class TradeRecord:
     exit: float
     pnl: float
     reason: str
+    costs: float = 0.0
+    size_usd: float = 0.0
 
 
 @dataclass
@@ -72,6 +74,12 @@ class Result:
             "nejlepsi_obchod": round(max(pnls), 2) if pnls else 0,
             "nejhorsi_obchod": round(min(pnls), 2) if pnls else 0,
             "odmitnute_signaly": self.rejected,
+            "naklady_usd": round(sum(t.costs for t in self.trades), 2),
+            "naklady_pct": round(sum(t.costs for t in self.trades) / self.initial * 100, 2) if self.initial else 0,
+            "prum_pozice_usd": round(sum(t.size_usd for t in self.trades) / len(self.trades), 0) if self.trades else 0,
+            "prum_zisk_pred_naklady_usd": round(sum(t.pnl + t.costs for t in self.trades) / len(self.trades), 2)
+            if self.trades else 0,
+            "prum_naklad_usd": round(sum(t.costs for t in self.trades) / len(self.trades), 2) if self.trades else 0,
         }
 
 
@@ -111,7 +119,8 @@ def run_backtest(cfg: Config, strategy: Strategy, data: dict[str, list[Candle]],
     def record(fills):
         for f in fills:
             t0, e0 = open_info.pop(f.position.position_id)
-            result.trades.append(TradeRecord(f.position.symbol, t0, f.time, e0, f.price, f.pnl, f.reason))
+            result.trades.append(TradeRecord(f.position.symbol, t0, f.time, e0, f.price, f.pnl, f.reason,
+                                             f.costs, f.position.invested))
 
     for d in all_days:
         active = d in days
