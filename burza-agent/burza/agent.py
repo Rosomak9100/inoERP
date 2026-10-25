@@ -15,6 +15,7 @@ from .etoro import EtoroClient, EtoroError
 from .journal import Journal
 from .models import Account, Candle, Position
 from .risk import RiskEngine, RiskState
+from .splits import adjust_splits, detect_split
 from .strategy import Strategy
 
 log = logging.getLogger(__name__)
@@ -41,7 +42,7 @@ class LiveData:
         candles = self.client.live_candles(instrument_id, self.interval, self.count)
         # Rozpracovanou svíčku zahodit – strategie vidí jen uzavřené (žádný look-ahead).
         # eToro vrací i pre-market/after-hours; backtest pracuje jen s řádnou seancí, živě stejně.
-        closed = [c for c in candles if c.time + self.step <= now and market.in_session(c.time)]
+        closed = adjust_splits([c for c in candles if c.time + self.step <= now and market.in_session(c.time)])
         self._cache[instrument_id] = closed
         return closed
 
@@ -370,6 +371,12 @@ class Agent:
             last = candles[-1]
             prices[symbol] = last.close
             if isinstance(self.broker, PaperBroker):
+                # split během držení: simulace přepočte pozici (u eToro to dělá eToro samo)
+                for p in [p for p in self.broker.positions.values() if p.symbol == symbol]:
+                    k = detect_split(p.open_price, last.open)
+                    if k and len(candles) > 1 and detect_split(candles[-2].close, last.open) is None:
+                        self.broker.apply_split(symbol, k)
+                        self.journal.event("split", f"{symbol}: split {k:g}:1 – simulovaná pozice přepočtena")
                 for fill in self.broker.on_bar(symbol, last):   # stopy pozic z minulých dnů
                     self.journal.trade_close(fill.position.position_id, fill.price, fill.pnl,
                                              "simulace", fill.reason, fill.time.isoformat(), fill.costs)

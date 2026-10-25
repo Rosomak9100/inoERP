@@ -79,6 +79,15 @@ Universe: ETF (CFD, 3 USD) + velké akcie (skutečné, 1 USD): AAPL, NVDA, MSFT,
 Pozor na **survivorship bias** – dnešní velké firmy jsou vybrané zpětně podle úspěchu, minulé výnosy
 strategií na nich jsou proto nadhodnocené. Hlavní měřítko je poměr výnosu a rizika proti „kup a drž“.
 
+### Oprava: splity akcií (26. 10. 2026)
+
+První swing backtest ukázal ve vývojovém období (2018–2024) nesmyslné ztráty trendových strategií.
+Příčina: historie z eToro **není přepočtená na splity** (AMZN 3. 6. 2022 close 2 443,80 → po splitu
+20:1 open 125,60). Backtest to bral jako pád o 95 % → stop-loss a obří „ztráta“ (AAPL 2020, NVDA 2021
+a 2024, AMZN a GOOGL 2022). Oprava: modul `splits.py` rozpozná skok odpovídající běžnému poměru splitu
+(±5 %) a přepočte starší ceny; simulace přepočte i otevřenou pozici, pokud split přijde během držení.
+Výsledky swing backtestu před opravou jsou neplatné.
+
 ### Komodity
 
 Agent obchoduje komodity přes ETF na americké burze – **GLD** (zlato) a **USO** (ropa WTI). Mají stejné

@@ -139,6 +139,18 @@ class PaperBroker(Broker):
         return OrderResult(True, "", "filled", [p.position_id], fill.price, p.units,
                            raw={"pnl": fill.pnl, "costs": fill.costs})
 
+    def apply_split(self, symbol: str, k: float) -> None:
+        """Split k:1 – víc kusů za nižší cenu, hodnota pozice se nemění."""
+        for p in self.positions.values():
+            if p.symbol != symbol:
+                continue
+            p.units *= k
+            p.open_price /= k
+            p.stop = p.stop / k if p.stop else p.stop
+            p.target = p.target / k if p.target else p.target
+        if symbol in self.last_price:
+            self.last_price[symbol] /= k
+
     def on_bar(self, symbol: str, c: Candle) -> list[ClosedFill]:
         """Zpracuje novou svíčku: aktualizuje cenu a vyhodnotí stop/target."""
         closed = []

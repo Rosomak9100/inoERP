@@ -28,7 +28,8 @@ def normalize_daily(candles: list[Candle]) -> list[Candle]:
             continue
         start, _ = market.session_bounds(d)
         by_day[d] = Candle(start.astimezone(timezone.utc), c.open, c.high, c.low, c.close, c.volume)
-    return [by_day[d] for d in sorted(by_day)]
+    from .splits import adjust_splits
+    return adjust_splits([by_day[d] for d in sorted(by_day)])
 
 
 def daily_from_intraday(candles: list[Candle]) -> list[Candle]:

@@ -230,7 +230,8 @@ def cmd_compare_intraday(cfg: Config, args) -> int:
     if stale or args.refresh:
         print(f"Stahuji historii {args.days} dní z eToro (chvíli to trvá) …")
         cmd_fetch(cfg, args)
-    data = {s: load_csv(path(s)) for s in cfg.instruments}
+    from .splits import adjust_splits
+    data = {s: adjust_splits(load_csv(path(s))) for s in cfg.instruments}
     initial = cfg.initial_capital_usd or 10_000.0
     days = sorted({d for c in data.values() for d in group_by_day(c)})
     test_days = days[int(len(days) * 0.7):]

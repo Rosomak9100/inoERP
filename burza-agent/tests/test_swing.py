@@ -150,3 +150,34 @@ class SwingAgentTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SplitTests(unittest.TestCase):
+    def test_detect_real_amzn_split_and_not_crash(self):
+        from burza.splits import detect_split
+        self.assertEqual(detect_split(2443.7986, 125.5969), 20.0)   # skutečná data eToro, AMZN 2022
+        self.assertEqual(detect_split(100.0, 1000.0), 0.1)           # zpětný split 1:10
+        self.assertIsNone(detect_split(100.0, 70.0))                 # propad o 30 % není split
+        self.assertIsNone(detect_split(100.0, 30.0))                 # propad o 70 % neodpovídá poměru
+
+    def test_adjust_makes_series_continuous(self):
+        from burza.splits import adjust_splits
+        days = trading_days(date(2022, 5, 2), 30)
+        closes = [2400.0 + i for i in range(15)] + [(2415.0 + i) / 20 for i in range(15)]
+        candles = normalize_daily(etoro_daily(days, closes))
+        for a, b in zip(candles, candles[1:]):
+            self.assertLess(abs(b.close / a.close - 1), 0.05)
+        self.assertAlmostEqual(candles[-1].close, (2415.0 + 14) / 20)    # dnešní ceny beze změny
+        self.assertEqual(adjust_splits(candles), candles)                # podruhé už nic
+
+    def test_paper_position_split(self):
+        b = PaperBroker(10_000, CostConfig.zero())
+        res = b.open_long(symbol="NVDA", instrument_id=1, amount_usd=2_000, stop=900, target=2_000,
+                          client_ref="x", price_hint=1_000)
+        p = b.positions[res.position_ids[0]]
+        value = p.units * 1_000
+        b.apply_split("NVDA", 10)
+        self.assertAlmostEqual(p.units * 100, value)
+        self.assertAlmostEqual(p.stop, 90)
+        fills = b.on_bar("NVDA", Candle(utc(2024, 6, 10, 13, 30), 100, 101, 95, 100))
+        self.assertEqual(fills, [])                                       # žádný falešný stop-loss
