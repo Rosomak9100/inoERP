@@ -1,0 +1,17 @@
+# systemd služba – agent běží nepřetržitě a při pádu se sám restartuje (watchdog).
+# Instalace: sudo cp deploy/burza.service /etc/systemd/system/ && sudo systemctl enable --now burza
+[Unit]
+Description=Burza AI obchodni agent (eToro)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=burza
+WorkingDirectory=/opt/burza-agent
+ExecStart=/opt/burza-agent/.venv/bin/python -m burza run
+Restart=on-failure
+RestartSec=60
+# Klíče se čtou ze souboru .env v WorkingDirectory (práva 600, vlastník burza)
+
+[Install]
+WantedBy=multi-user.target

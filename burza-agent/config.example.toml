@@ -1,0 +1,46 @@
+# Burza agent – konfigurace. Zkopíruj do config.toml a uprav.
+# Klíče sem NEPATŘÍ – čtou se z proměnných prostředí (viz .env.example).
+
+# paper = vlastní simulace (bez eToro příkazů)
+# demo  = virtuální účet eToro (doporučeno pro start)
+# real  = skutečné peníze (Agent Portfolio) – vyžaduje i BURZA_I_ACCEPT_REAL_MONEY_RISK=ano
+mode = "demo"
+real_trading_confirmed = false
+
+strategy = "vwap_pullback"   # vwap_pullback | orb
+interval = "5m"              # 1m | 5m | 15m
+poll_seconds = 30
+
+# Výchozí kapitál, ze kterého se počítají limity (200 000 Kč přepočtené na USD při startu).
+# 0 = vezme se equity účtu při prvním spuštění a uloží se do deníku.
+initial_capital_usd = 0
+
+data_dir = "data"
+kill_file = "STOP"
+
+[risk]
+risk_per_trade_pct = 1.0      # max. riziko jednoho obchodu z počátečního kapitálu
+max_daily_loss_pct = 3.0      # při dosažení: žádné nové obchody do dalšího obchodního dne
+max_drawdown_pct = 15.0       # při dosažení: vše zavřít a zastavit do ručního schválení
+max_open_positions = 3
+max_position_pct = 25.0       # max. objem jedné pozice v % equity
+max_trades_per_day = 10
+flatten_on_daily_limit = true
+
+[session]
+no_entry_first_minutes = 15   # prvních N minut po otevření nevstupovat (opening range)
+no_entry_last_minutes = 30    # posledních N minut nevstupovat
+flatten_minutes_before_close = 10
+stale_data_seconds = 900      # data starší než tohle = zastaralá, neobchodovat
+
+[costs]                       # pro paper režim a backtest
+spread_bps = 2.0              # polovina se platí při vstupu, polovina při výstupu
+commission_usd = 0.0          # za jednu stranu obchodu
+slippage_bps = 1.0
+
+# Instrumenty: symbol = eToro instrumentId (ověřeno 24. 10. 2026)
+[instruments]
+SPY = 3000
+QQQ = 3006
+AAPL = 1001
+NVDA = 1137
